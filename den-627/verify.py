@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "source"
 PINS = ROOT / "pins.json"
-EXPECTED_COMMIT = "69612d39ae838d2f999ce85bffb0d6ce97c014f6"
+EXPECTED_COMMIT = "791939fa54d9a8a2884583732742376bedea86f4"
 EXPECTED_BLOBS = {
     "reconcile-selected-orgs.sh": "82c0215b83bf7d0b20f97bc560091223b8c1fdef",
     "tests/reconcile_receipts.sh": "5b196f5d78e7ddf677c8bdf11e7243394254ca23",
