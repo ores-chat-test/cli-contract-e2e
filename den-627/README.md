@@ -1,6 +1,6 @@
 # DEN-627 ORES CLI receipt-integrity recovery
 
-This directory executes the two shell files from `ORESoftware/ores-cli#21` at source commit `69612d39ae838d2f999ce85bffb0d6ce97c014f6`.
+This directory executes the two shell files from `ORESoftware/ores-cli#21` at source commit `791939fa54d9a8a2884583732742376bedea86f4`.
 
 The snapshots are bound twice: `pins.json` records the source identities, while `verify.py` contains independently reviewed expected commit and Git blob values. A change to either source file must update both approval layers and rerun the complete suite.
 
