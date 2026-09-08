@@ -1,0 +1,20 @@
+{
+  "$schema": "ores.cli-test.receipt-integrity-pins/v1",
+  "linearIssue": "DEN-627",
+  "source": {
+    "repository": "ORESoftware/ores-cli",
+    "pullRequest": 21,
+    "commit": "791939fa54d9a8a2884583732742376bedea86f4",
+    "blobs": {
+      "reconcile-selected-orgs.sh": "82c0215b83bf7d0b20f97bc560091223b8c1fdef",
+      "tests/reconcile_receipts.sh": "5b196f5d78e7ddf677c8bdf11e7243394254ca23"
+    }
+  },
+  "scope": {
+    "offline": true,
+    "liveGitHub": false,
+    "repositoryCreation": false,
+    "rustCli": false,
+    "macOS": false
+  }
+}

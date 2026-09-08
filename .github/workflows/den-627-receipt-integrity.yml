@@ -1,0 +1,86 @@
+name: DEN-627 receipt integrity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/den-627-receipt-integrity.yml'
+      - 'den-627/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-627-receipt-integrity.yml'
+      - 'den-627/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-627-receipt-integrity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  complete-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact test head without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify immutable source identities and evidence scope
+        run: python3 den-627/verify.py
+      - name: Check Bash syntax
+        run: |
+          bash -n den-627/source/reconcile-selected-orgs.sh
+          bash -n den-627/source/tests/reconcile_receipts.sh
+      - name: Execute all offline receipt regressions
+        working-directory: den-627/source
+        run: bash tests/reconcile_receipts.sh all
+      - name: Reject conflicts and credential-shaped material
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git grep -nE \
+            '^(<<<<<<< |=======|>>>>>>> )|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|lin_api_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9_-]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' \
+            -- den-627 .github/workflows/den-627-receipt-integrity.yml; then
+            echo 'conflict marker or credential-shaped material detected' >&2
+            exit 1
+          fi
+
+  individual-cases:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - collision
+          - bad_root
+          - mktemp_failure
+          - date_failure
+          - invalid_date
+          - production_findings
+          - test_findings
+          - unavailable
+          - audit_findings
+          - create_findings
+          - runtime_failure
+          - creation_guard
+          - empty_findings
+    steps:
+      - name: Check out exact test head without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          show-progress: false
+          submodules: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify immutable source identities and evidence scope
+        run: python3 den-627/verify.py
+      - name: Execute ${{ matrix.case }}
+        working-directory: den-627/source
+        run: bash tests/reconcile_receipts.sh '${{ matrix.case }}'
