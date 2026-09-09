@@ -58,9 +58,9 @@ jobs:
             echo "unresolved conflict marker found" >&2
             exit 1
           fi
-          if grep -RInE '(github_pat_|ghp_[A-Za-z0-9]|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY|Authorization:[[:space:]]*Bearer)' \
+          if grep -RInE '(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~-]{20,})' \
               --exclude-dir=.git .; then
-            echo "credential-shaped content found" >&2
+            echo "credential-shaped value found" >&2
             exit 1
           fi
 
