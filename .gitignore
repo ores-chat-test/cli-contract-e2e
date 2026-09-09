@@ -1,0 +1,4 @@
+# Local-only verification scratch space; never publish credentials or private source.
+tmp/
+temp/
+.ores-tjsv-*/
