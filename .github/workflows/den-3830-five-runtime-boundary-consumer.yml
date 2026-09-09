@@ -1,0 +1,128 @@
+name: DEN-3830 five-runtime TJSV consumer
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/den-3830-five-runtime-boundary-consumer.yml'
+      - 'den-3830/five-runtime-boundary-consumer.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-3830-five-runtime-boundary-consumer.yml'
+      - 'den-3830/five-runtime-boundary-consumer.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-3830-five-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: packaged consumer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      TJSV_REVISION: 733bc1b6b4b45433a38625fc4dd9ddb108b60519
+      TJSV_BOUNDARY_RECEIPT: ${{ github.workspace }}/evidence/${{ matrix.os }}/language-boundary-verification.json
+    steps:
+      - name: Check out exact test-repository head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: consumer
+          persist-credentials: false
+
+      - name: Verify test-repository revision
+        working-directory: consumer
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Check out TJSV at the reviewed exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: ${{ env.TJSV_REVISION }}
+          path: public-tjsv
+          persist-credentials: false
+
+      - name: Verify immutable upstream identity
+        working-directory: public-tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TJSV_REVISION"
+          test "$(git remote get-url origin)" = 'https://github.com/ORESoftware/typespec-json-schema-validator'
+
+      - name: Set up supported Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+
+      - name: Install the packed public package into a clean consumer
+        id: install
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer_dir="$(mktemp -d)"
+          chmod 0700 "$consumer_dir"
+          tarball="$(cd public-tjsv && npm pack --silent --ignore-scripts)"
+          mv "public-tjsv/$tarball" "$consumer_dir/tjsv.tgz"
+          cd "$consumer_dir"
+          npm init --yes >/dev/null
+          npm pkg set type=module >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund ./tjsv.tgz
+          cp "$GITHUB_WORKSPACE/consumer/den-3830/five-runtime-boundary-consumer.mjs" .
+          printf 'consumer_dir=%s\n' "$consumer_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Admit five exact language/runtime evidence lanes
+        working-directory: ${{ steps.install.outputs.consumer_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node five-runtime-boundary-consumer.mjs
+
+      - name: Verify receipt is bounded and credential-free
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$TJSV_BOUNDARY_RECEIPT"
+          test "$(wc -c < "$TJSV_BOUNDARY_RECEIPT" | tr -d ' ')" -le 16384
+          node -e '
+            const fs = require("node:fs");
+            const receiptPath = process.env.TJSV_BOUNDARY_RECEIPT;
+            const info = fs.statSync(receiptPath);
+            if ((info.mode & 0o777) !== 0o600) process.exit(1);
+            const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+            if (receipt.status !== "passed" || receipt.counts.admittedEvidence !== 5 || receipt.counts.findings !== 0) process.exit(1);
+          '
+          if grep -Eiq '(ghp_[A-Za-z0-9]{20,}|lin_api_[A-Za-z0-9]{20,}|authorization|bearer|password|secret|private[_-]?key)' "$TJSV_BOUNDARY_RECEIPT"; then
+            echo 'receipt contains credential-shaped or secret-bearing material' >&2
+            exit 1
+          fi
+
+      - name: Require unchanged source checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C consumer diff --exit-code
+          git -C public-tjsv diff --exit-code
+
+      - name: Retain deterministic boundary receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: den-3830-five-runtime-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.TJSV_BOUNDARY_RECEIPT }}
+          if-no-files-found: error
+          retention-days: 30
