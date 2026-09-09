@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/public-tjsv-kit.yml
+      - .gitignore
   workflow_dispatch:
 permissions:
   contents: read
