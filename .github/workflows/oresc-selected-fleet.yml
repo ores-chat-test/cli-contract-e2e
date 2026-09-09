@@ -1,0 +1,111 @@
+name: ORESC selected-fleet contract
+
+on:
+  pull_request:
+    paths:
+      - "contracts/oresc-selected-fleet.v1.json"
+      - "scripts/verify-oresc-selected-fleet.mjs"
+      - "suite.json"
+      - "README.md"
+      - ".github/workflows/oresc-selected-fleet.yml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/oresc-selected-fleet.v1.json"
+      - "scripts/verify-oresc-selected-fleet.mjs"
+      - "suite.json"
+      - "README.md"
+      - ".github/workflows/oresc-selected-fleet.yml"
+  workflow_dispatch:
+    inputs:
+      ores_cli_ref:
+        description: "ORESoftware/ores-cli ref to verify"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oresc-selected-fleet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact test contract
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: ""
+      - name: Validate contract and negative controls
+        run: |
+          set -euo pipefail
+          node scripts/verify-oresc-selected-fleet.mjs --self-test
+          node scripts/verify-oresc-selected-fleet.mjs
+          python3 -m json.tool contracts/oresc-selected-fleet.v1.json >/dev/null
+      - name: Reject credentials and conflict markers
+        run: |
+          set -euo pipefail
+          if grep -RInE '^(<{7}|={7}|>{7})( |$)' --exclude-dir=.git .; then
+            echo "unresolved conflict marker found" >&2
+            exit 1
+          fi
+          if grep -RInE '(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~-]{20,})' \
+              --exclude-dir=.git .; then
+            echo "credential-shaped value found" >&2
+            exit 1
+          fi
+
+  private-source:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require the approved private-source read credential
+        env:
+          ORES_CLI_READ_TOKEN: ${{ secrets.ORES_CLI_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${ORES_CLI_READ_TOKEN:-}" || {
+            echo "ORES_CLI_READ_TOKEN is required for private-source verification" >&2
+            exit 2
+          }
+      - name: Check out test contract
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: ""
+      - name: Check out reviewed ores-cli source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/ores-cli
+          ref: ${{ inputs.ores_cli_ref }}
+          token: ${{ secrets.ORES_CLI_READ_TOKEN }}
+          path: upstream/ores-cli
+          persist-credentials: false
+      - name: Verify the exact private script against this independent contract
+        run: |
+          set -euo pipefail
+          node scripts/verify-oresc-selected-fleet.mjs \
+            --script upstream/ores-cli/reconcile-selected-orgs.sh
+          bash -n upstream/ores-cli/reconcile-selected-orgs.sh
+          bash upstream/ores-cli/tests/reconcile_selected_orgs.sh
+      - name: Verify clone-install handoff remains non-mutating
+        run: |
+          set -euo pipefail
+          upstream/ores-cli/post-install.sh --dry-run > "$RUNNER_TEMP/post-install.txt"
+          grep -F 'reconcile-selected-orgs.sh --apply --production-only' "$RUNNER_TEMP/post-install.txt"
+          grep -F 'reconcile-selected-orgs.sh --apply --tests-only' "$RUNNER_TEMP/post-install.txt"

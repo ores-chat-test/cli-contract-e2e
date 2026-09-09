@@ -1,7 +1,9 @@
 # cli-contract-e2e
 
-Status: **contract-only**. This suite specifies command-line configuration, trust-plane routing, structured output, and exit-code behavior.
+Status: **contract-only**. This suite specifies command-line configuration, trust-plane routing, structured output, exit-code behavior, and the selected production/test organization reconciliation plan.
 
-This repository is an executable acceptance-suite boundary, not evidence that the corresponding product capability is complete. The suite must target both `ores-chat` and the isolated `ores-chat-test` fixture. Promotion to `live` requires hosted execution, deterministic assertions, and redacted retained evidence.
+The independent consumer contract is `contracts/oresc-selected-fleet.v1.json`. `scripts/verify-oresc-selected-fleet.mjs` validates all seven organization pairs, the non-obvious `ores-rl` and `ores-lru-redis` prefixes, focused test-repository sets, explicit mutation gating, private receipt handling, and credential-free argv behavior. Its self-test includes matrix-drift, prefix-drift, duplicate, and secret-shaped-name negative controls.
 
-The machine-readable plan is in `suite.json` and is validated by the organization policy action pinned to an immutable commit. Public, customer, administrator, and internal-service identities are never interchangeable.
+Pull requests run without private source or credentials. A manual `workflow_dispatch` can use the approved `ORES_CLI_READ_TOKEN` secret to check an exact `ORESoftware/ores-cli` ref, execute the source repository's reconciliation smoke suite, and verify that `post-install.sh --dry-run` prints the guarded handoff. Absence of that secret fails the private-source job closed.
+
+This repository remains contract-only until the private-source job and the relevant live organization probes pass at an exact ref. It does not claim that missing organizations or focused repositories exist. Public, customer, administrator, and internal-service identities are never interchangeable, and retained output must not contain bearer tokens, provider credentials, prompts, answers, database URLs, or cache values.
