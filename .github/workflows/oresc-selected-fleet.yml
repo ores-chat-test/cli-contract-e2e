@@ -61,13 +61,24 @@ jobs:
           sarif: .typespec-json-schema-validator/oresc-selected-fleet.sarif
           contract_ir: .typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json
           quiet: "false"
-      - name: Require admissible differential evidence
+      - name: Reverify Contract IR for the complete selected-fleet consumer scope
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        with:
+          contract_ir: .typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json
+          report: .typespec-json-schema-validator/oresc-selected-fleet.report.json
+          typespec: contracts/oresc-selected-fleet.v1.tsp
+          schema: contracts/oresc-selected-fleet.v1.schema.json
+          generated_schema: .typespec-json-schema-validator/generated/typespec.generated.schema.json
+          expected_declarations: '["Oresc.SelectedFleet.SelectedFleetContract","Oresc.SelectedFleet.SelectedFleetPair","Oresc.SelectedFleet.SelectedFleetPolicy","Oresc.SelectedFleet.SelectedFleetSource"]'
+          verification: .typespec-json-schema-validator/oresc-selected-fleet.consumer-verification.json
+      - name: Require admissible differential and consumer evidence
         run: |
           set -euo pipefail
           node <<'NODE'
           const { readFileSync } = require('node:fs');
           const report = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.report.json', 'utf8'));
           const contractIr = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json', 'utf8'));
+          const verification = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.consumer-verification.json', 'utf8'));
           const differential = report.differential?.summary;
           if (report.schema !== 'ores.typespec-json-schema-validator.report/v1') throw new Error('unexpected TJSV report schema');
           if (report.status !== 'passed' || report.zeroUnexplainedFindings !== true) throw new Error('TJSV parity did not pass');
@@ -82,8 +93,29 @@ jobs:
             throw new Error('TJSV differential evidence is incomplete');
           }
           if (contractIr.schema !== 'ores.typespec-json-schema-validator.contract-ir/v1') throw new Error('unexpected Contract IR schema');
-          if (contractIr.status !== 'passed' || contractIr.admissible !== true || contractIr.admission?.scope?.complete !== true) {
+          if (
+            contractIr.status !== 'passed'
+            || contractIr.admissible !== true
+            || contractIr.role !== 'downstream-derived-parity-artifact'
+            || contractIr.editableAuthority !== false
+            || contractIr.admission?.scope?.complete !== true
+          ) {
             throw new Error('Contract IR is not admissible');
+          }
+          if (verification.schema !== 'ores.typespec-json-schema-validator.consumer-verification-receipt/v1') {
+            throw new Error('unexpected consumer verification schema');
+          }
+          if (
+            verification.status !== 'passed'
+            || verification.admissible !== true
+            || verification.failureCode !== null
+            || verification.receiptRunId !== report.runId
+            || verification.suppliedIrId !== contractIr.irId
+            || verification.computedIrId !== contractIr.irId
+            || verification.expectedIrId !== contractIr.irId
+            || verification.declarationIds.length !== 4
+          ) {
+            throw new Error('consumer verification is not bound to the exact complete contract scope');
           }
           NODE
       - name: Validate contract values and negative controls
