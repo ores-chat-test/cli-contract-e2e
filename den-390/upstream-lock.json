@@ -1,0 +1,17 @@
+{
+  "schema": "ores-chat-test.oresc-tjsv-pin/v1",
+  "upstream": {
+    "repository": "ORESoftware/ores-cli",
+    "pullRequest": 42,
+    "head": "d9388f5bb2565b62d7d8cd13f042f360e8014737",
+    "files": {
+      "tjsv/source-lock.json": "6663a0d3139af3082b7f3d769140df6c3c40a8d4",
+      "tests/post_install.sh": "37b1955f15afc02fe2b432b4041f480162e02b4c",
+      "docs/verification/2026-09-09-current-tjsv-lambda-profile.md": "2b8f6c505738661127159ee1a1a1cec89f285ec0"
+    }
+  },
+  "expectedValidator": {
+    "repository": "ORESoftware/typespec-json-schema-validator",
+    "revision": "4740f1367a7906813dcd420a77d0c9ede26943fb"
+  }
+}
