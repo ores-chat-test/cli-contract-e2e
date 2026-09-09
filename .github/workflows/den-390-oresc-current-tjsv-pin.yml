@@ -68,7 +68,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TJSV_REVISION"
           test -f src/language-boundary-verification.mjs
-          test -f schema/language-boundary-manifest.schema.json
+          test -f schema/language-boundaries.schema.json
           test -f schema/language-boundary-evidence.schema.json
           test -f schema/language-boundary-verification.schema.json
           test -f test/integration/lambda-runtime-contract.test.mjs
