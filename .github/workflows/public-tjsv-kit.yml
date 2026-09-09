@@ -1,0 +1,53 @@
+name: Public TJSV offline verification kit
+on:
+  pull_request:
+    paths:
+      - .github/workflows/public-tjsv-kit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out only the public validator at its reviewed immutable revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: 4473504c4c9d2831d825919f70c03994d8ce01d2
+          path: public-tjsv
+          persist-credentials: false
+      - name: Set up the supported Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.16.0
+      - name: Install and execute the upstream compiler-backed suite
+        working-directory: public-tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4473504c4c9d2831d825919f70c03994d8ce01d2
+          npm ci
+          npm run test:all
+          git diff --exit-code -- package.json package-lock.json
+      - name: Export only public source and its locked dependencies
+        working-directory: public-tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tjsv-kit"
+          printf '%s\n' 4473504c4c9d2831d825919f70c03994d8ce01d2 > "$RUNNER_TEMP/tjsv-kit/source-revision.txt"
+          sha256sum package.json package-lock.json > "$RUNNER_TEMP/tjsv-kit/upstream-inputs.sha256"
+          node --version > "$RUNNER_TEMP/tjsv-kit/node-version.txt"
+          tar --exclude=.git --exclude='*/.git' --exclude='*/.git/*' -czf "$RUNNER_TEMP/tjsv-kit/public-tjsv.tar.gz" \
+            .cli-flags.toml package.json package-lock.json LICENSE README.md bin src schema node_modules
+          cd "$RUNNER_TEMP/tjsv-kit"
+          sha256sum public-tjsv.tar.gz > SHA256SUMS
+      - name: Upload bounded-lifetime public kit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-tjsv-4473504-offline-kit
+          path: ${{ runner.temp }}/tjsv-kit/
+          if-no-files-found: error
+          retention-days: 1
