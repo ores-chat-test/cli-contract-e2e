@@ -68,9 +68,17 @@ jobs:
           const { readFileSync } = require('node:fs');
           const report = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.report.json', 'utf8'));
           const contractIr = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json', 'utf8'));
+          const differential = report.differential?.summary;
           if (report.schema !== 'ores.typespec-json-schema-validator.report/v1') throw new Error('unexpected TJSV report schema');
           if (report.status !== 'passed' || report.zeroUnexplainedFindings !== true) throw new Error('TJSV parity did not pass');
-          if (report.coverage?.differentialInstanceValidation !== true || report.differential?.disabled !== false) {
+          if (
+            report.coverage?.differentialInstanceValidation !== true
+            || report.differential?.disabled === true
+            || !differential
+            || differential.probesEvaluated < 1
+            || differential.divergences !== 0
+            || differential.refusals !== 0
+          ) {
             throw new Error('TJSV differential evidence is incomplete');
           }
           if (contractIr.schema !== 'ores.typespec-json-schema-validator.contract-ir/v1') throw new Error('unexpected Contract IR schema');
