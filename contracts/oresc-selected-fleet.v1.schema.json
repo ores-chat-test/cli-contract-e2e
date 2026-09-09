@@ -18,13 +18,13 @@
       "$id": "SelectedFleetPolicy",
       "type": "object",
       "properties": {
-        "previewByDefault": { "const": true },
-        "explicitApplyRequired": { "const": true },
-        "primaryGitHubLogin": { "const": "ORESoftware" },
-        "unavailableOwnerContinues": { "const": true },
-        "productionAndTestLanesIndependent": { "const": true },
-        "privateReceipts": { "const": true },
-        "credentialsForbiddenOnArgv": { "const": true }
+        "previewByDefault": { "type": "boolean", "const": true },
+        "explicitApplyRequired": { "type": "boolean", "const": true },
+        "primaryGitHubLogin": { "type": "string", "const": "ORESoftware" },
+        "unavailableOwnerContinues": { "type": "boolean", "const": true },
+        "productionAndTestLanesIndependent": { "type": "boolean", "const": true },
+        "privateReceipts": { "type": "boolean", "const": true },
+        "credentialsForbiddenOnArgv": { "type": "boolean", "const": true }
       },
       "required": [
         "previewByDefault",
@@ -66,7 +66,7 @@
       "$id": "SelectedFleetContract",
       "type": "object",
       "properties": {
-        "schemaVersion": { "const": "oresc.selected-fleet.contract.v1" },
+        "schemaVersion": { "type": "string", "const": "oresc.selected-fleet.contract.v1" },
         "source": { "$ref": "SelectedFleetSource" },
         "policy": { "$ref": "SelectedFleetPolicy" },
         "pairs": {
