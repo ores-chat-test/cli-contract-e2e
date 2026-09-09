@@ -60,7 +60,7 @@ jobs:
           report: .typespec-json-schema-validator/oresc-selected-fleet.report.json
           sarif: .typespec-json-schema-validator/oresc-selected-fleet.sarif
           contract_ir: .typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json
-          quiet: "true"
+          quiet: "false"
       - name: Require admissible differential evidence
         run: |
           set -euo pipefail
@@ -103,6 +103,7 @@ jobs:
           name: oresc-selected-fleet-tjsv-${{ github.run_id }}
           path: .typespec-json-schema-validator
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 14
 
   private-source:
