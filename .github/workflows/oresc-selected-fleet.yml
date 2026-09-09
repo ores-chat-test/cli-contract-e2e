@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "contracts/oresc-selected-fleet.v1.json"
+      - "contracts/oresc-selected-fleet.v1.tsp"
+      - "contracts/oresc-selected-fleet.v1.schema.json"
+      - "contracts/instances/**"
       - "scripts/verify-oresc-selected-fleet.mjs"
       - "suite.json"
       - "README.md"
@@ -12,6 +15,9 @@ on:
     branches: [main]
     paths:
       - "contracts/oresc-selected-fleet.v1.json"
+      - "contracts/oresc-selected-fleet.v1.tsp"
+      - "contracts/oresc-selected-fleet.v1.schema.json"
+      - "contracts/instances/**"
       - "scripts/verify-oresc-selected-fleet.mjs"
       - "suite.json"
       - "README.md"
@@ -34,7 +40,7 @@ concurrency:
 jobs:
   contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out exact test contract
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -45,7 +51,42 @@ jobs:
         with:
           node-version: "22"
           cache: ""
-      - name: Validate contract and negative controls
+      - name: Enforce independent TypeSpec and JSON Schema authorities with TJSV
+        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        with:
+          typespec: contracts/oresc-selected-fleet.v1.tsp
+          schema: contracts/oresc-selected-fleet.v1.schema.json
+          instances: contracts/instances
+          report: .typespec-json-schema-validator/oresc-selected-fleet.report.json
+          sarif: .typespec-json-schema-validator/oresc-selected-fleet.sarif
+          contract_ir: .typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json
+          quiet: "false"
+      - name: Require admissible differential evidence
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.report.json', 'utf8'));
+          const contractIr = JSON.parse(readFileSync('.typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json', 'utf8'));
+          const differential = report.differential?.summary;
+          if (report.schema !== 'ores.typespec-json-schema-validator.report/v1') throw new Error('unexpected TJSV report schema');
+          if (report.status !== 'passed' || report.zeroUnexplainedFindings !== true) throw new Error('TJSV parity did not pass');
+          if (
+            report.coverage?.differentialInstanceValidation !== true
+            || report.differential?.disabled === true
+            || !differential
+            || differential.probesEvaluated < 1
+            || differential.divergences !== 0
+            || differential.refusals !== 0
+          ) {
+            throw new Error('TJSV differential evidence is incomplete');
+          }
+          if (contractIr.schema !== 'ores.typespec-json-schema-validator.contract-ir/v1') throw new Error('unexpected Contract IR schema');
+          if (contractIr.status !== 'passed' || contractIr.admissible !== true || contractIr.admission?.scope?.complete !== true) {
+            throw new Error('Contract IR is not admissible');
+          }
+          NODE
+      - name: Validate contract values and negative controls
         run: |
           set -euo pipefail
           node scripts/verify-oresc-selected-fleet.mjs --self-test
@@ -54,15 +95,24 @@ jobs:
       - name: Reject credentials and conflict markers
         run: |
           set -euo pipefail
-          if grep -RInE '^(<{7}|={7}|>{7})( |$)' --exclude-dir=.git .; then
+          if grep -RInE '^(<{7}|={7}|>{7})( |$)' --exclude-dir=.git --exclude-dir=.typespec-json-schema-validator .; then
             echo "unresolved conflict marker found" >&2
             exit 1
           fi
           if grep -RInE '(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----|Authorization:[[:space:]]*Bearer[[:space:]]+[A-Za-z0-9._~-]{20,})' \
-              --exclude-dir=.git .; then
+              --exclude-dir=.git --exclude-dir=.typespec-json-schema-validator .; then
             echo "credential-shaped value found" >&2
             exit 1
           fi
+      - name: Retain deterministic TJSV evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: oresc-selected-fleet-tjsv-${{ github.run_id }}
+          path: .typespec-json-schema-validator
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
 
   private-source:
     if: github.event_name == 'workflow_dispatch'

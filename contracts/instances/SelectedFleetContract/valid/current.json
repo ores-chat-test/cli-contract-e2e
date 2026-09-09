@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "oresc.selected-fleet.contract.v1",
+  "source": {
+    "repository": "ORESoftware/ores-cli",
+    "script": "reconcile-selected-orgs.sh"
+  },
+  "policy": {
+    "previewByDefault": true,
+    "explicitApplyRequired": true,
+    "primaryGitHubLogin": "ORESoftware",
+    "unavailableOwnerContinues": true,
+    "productionAndTestLanesIndependent": true,
+    "privateReceipts": true,
+    "credentialsForbiddenOnArgv": true
+  },
+  "pairs": [
+    {
+      "logicalOrganization": "ores-chat",
+      "productionOwner": "ores-chat",
+      "familyPrefix": "ores-chat",
+      "testOwner": "ores-chat-test",
+      "testRepositories": [
+        ".github",
+        "contract-conformance-tests",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests",
+        "cli-contract-e2e",
+        "mcp-contract-e2e",
+        "telemetry-redaction-e2e",
+        "dual-auth-supabase-neon-e2e",
+        "sign-in-link-e2e",
+        "redis-lru-pubsub-e2e",
+        "rate-limit-integration-e2e",
+        "sops-secret-redaction-e2e"
+      ]
+    },
+    {
+      "logicalOrganization": "ores-legal",
+      "productionOwner": "ores-legal",
+      "familyPrefix": "ores-legal",
+      "testOwner": "ores-legal-test",
+      "testRepositories": [
+        ".github",
+        "contract-conformance-tests",
+        "signature-workflow-e2e",
+        "audit-trail-integrity-e2e",
+        "consent-evidence-e2e",
+        "signer-auth-e2e",
+        "multi-party-routing-e2e",
+        "webhook-replay-e2e",
+        "webhook-idempotency-e2e",
+        "document-retention-e2e",
+        "erasure-and-legal-hold-e2e",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests"
+      ]
+    },
+    {
+      "logicalOrganization": "ores-middleware",
+      "productionOwner": "ores-middleware",
+      "currentImplementation": "ORESoftware/ores-middleware",
+      "familyPrefix": "ores-middleware",
+      "testOwner": "ores-middleware-test",
+      "testRepositories": [
+        ".github",
+        "contract-conformance-tests",
+        "middleware-ordering-e2e",
+        "dual-auth-routing-e2e",
+        "admin-db-isolation-e2e",
+        "rate-limit-integration-e2e",
+        "redis-lru-integration-e2e",
+        "otel-context-propagation-e2e",
+        "sops-secret-redaction-e2e",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests"
+      ]
+    },
+    {
+      "logicalOrganization": "ores-rate-limit",
+      "productionOwner": "ores-rate-limit",
+      "familyPrefix": "ores-rl",
+      "testOwner": "ores-rate-limit-test",
+      "testRepositories": [
+        ".github",
+        "token-bucket-conformance-tests",
+        "sliding-window-conformance-tests",
+        "distributed-consistency-e2e",
+        "redis-pubsub-e2e",
+        "clock-skew-e2e",
+        "fairness-e2e",
+        "burst-control-e2e",
+        "tenant-isolation-e2e",
+        "failover-e2e",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests"
+      ]
+    },
+    {
+      "logicalOrganization": "ores-otel",
+      "productionOwner": "ores-otel",
+      "familyPrefix": "ores-otel",
+      "testOwner": "ores-otel-test",
+      "testRepositories": [
+        ".github",
+        "contract-conformance-tests",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests",
+        "trace-context-propagation-e2e",
+        "sampling-policy-e2e",
+        "collector-failover-e2e",
+        "pii-redaction-e2e",
+        "otlp-http-grpc-parity-e2e",
+        "async-context-propagation-e2e",
+        "redis-lru-correlation-e2e"
+      ]
+    },
+    {
+      "logicalOrganization": "ores-redis-lru-cache",
+      "productionOwner": "ores-redis-lru-cache",
+      "familyPrefix": "ores-lru-redis",
+      "testOwner": "ores-redis-lru-cache-test",
+      "testRepositories": [
+        ".github",
+        "ores-redis-lru-e2e-test",
+        "ores-redis-lru-cache-test.github.io"
+      ]
+    },
+    {
+      "logicalOrganization": "pal-trace",
+      "productionOwner": "pal-trace",
+      "familyPrefix": "pal-trace",
+      "testOwner": "pal-trace-test",
+      "testRepositories": [
+        ".github",
+        "contract-conformance-tests",
+        "trace-ingestion-e2e",
+        "trace-query-e2e",
+        "tenant-isolation-e2e",
+        "privacy-redaction-e2e",
+        "collector-failover-e2e",
+        "offline-sync-e2e",
+        "retention-erasure-e2e",
+        "otel-correlation-e2e",
+        "security-boundary-tests",
+        "chaos-recovery-tests",
+        "upgrade-compatibility-tests"
+      ]
+    }
+  ]
+}

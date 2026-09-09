@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oresc.selected-fleet.v1.schema.json",
+  "$defs": {
+    "SelectedFleetSource": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SelectedFleetSource",
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string" },
+        "script": { "type": "string" }
+      },
+      "required": ["repository", "script"],
+      "unevaluatedProperties": false
+    },
+    "SelectedFleetPolicy": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SelectedFleetPolicy",
+      "type": "object",
+      "properties": {
+        "previewByDefault": { "type": "boolean", "const": true },
+        "explicitApplyRequired": { "type": "boolean", "const": true },
+        "primaryGitHubLogin": { "type": "string", "const": "ORESoftware" },
+        "unavailableOwnerContinues": { "type": "boolean", "const": true },
+        "productionAndTestLanesIndependent": { "type": "boolean", "const": true },
+        "privateReceipts": { "type": "boolean", "const": true },
+        "credentialsForbiddenOnArgv": { "type": "boolean", "const": true }
+      },
+      "required": [
+        "previewByDefault",
+        "explicitApplyRequired",
+        "primaryGitHubLogin",
+        "unavailableOwnerContinues",
+        "productionAndTestLanesIndependent",
+        "privateReceipts",
+        "credentialsForbiddenOnArgv"
+      ],
+      "unevaluatedProperties": false
+    },
+    "SelectedFleetPair": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SelectedFleetPair",
+      "type": "object",
+      "properties": {
+        "logicalOrganization": { "type": "string" },
+        "productionOwner": { "type": "string" },
+        "currentImplementation": { "type": "string" },
+        "familyPrefix": { "type": "string" },
+        "testOwner": { "type": "string" },
+        "testRepositories": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": [
+        "logicalOrganization",
+        "productionOwner",
+        "familyPrefix",
+        "testOwner",
+        "testRepositories"
+      ],
+      "unevaluatedProperties": false
+    },
+    "SelectedFleetContract": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SelectedFleetContract",
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "type": "string", "const": "oresc.selected-fleet.contract.v1" },
+        "source": { "$ref": "SelectedFleetSource" },
+        "policy": { "$ref": "SelectedFleetPolicy" },
+        "pairs": {
+          "type": "array",
+          "items": { "$ref": "SelectedFleetPair" }
+        }
+      },
+      "required": ["schemaVersion", "source", "policy", "pairs"],
+      "unevaluatedProperties": false
+    }
+  }
+}
