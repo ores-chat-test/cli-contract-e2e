@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 20
     env:
       TJSV_REVISION: 733bc1b6b4b45433a38625fc4dd9ddb108b60519
-      TJSV_BOUNDARY_RECEIPT: ${{ github.workspace }}/evidence/${{ runner.os }}/language-boundary-verification.json
+      TJSV_BOUNDARY_RECEIPT: ${{ github.workspace }}/evidence/${{ matrix.os }}/language-boundary-verification.json
     steps:
       - name: Check out exact test-repository head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
