@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "oresc.selected-fleet.contract.v1",
+  "source": {
+    "repository": "ORESoftware/ores-cli",
+    "script": "reconcile-selected-orgs.sh"
+  },
+  "policy": {
+    "previewByDefault": true,
+    "explicitApplyRequired": true,
+    "primaryGitHubLogin": "ORESoftware",
+    "unavailableOwnerContinues": true,
+    "productionAndTestLanesIndependent": true,
+    "privateReceipts": true,
+    "credentialsForbiddenOnArgv": true,
+    "implicitMutationAllowed": true
+  },
+  "pairs": []
+}
