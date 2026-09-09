@@ -98,10 +98,12 @@ jobs:
           set -euo pipefail
           test -s "$TJSV_BOUNDARY_RECEIPT"
           test "$(wc -c < "$TJSV_BOUNDARY_RECEIPT" | tr -d ' ')" -le 16384
-          test "$(stat -f '%Lp' "$TJSV_BOUNDARY_RECEIPT" 2>/dev/null || stat -c '%a' "$TJSV_BOUNDARY_RECEIPT")" = '600'
           node -e '
             const fs = require("node:fs");
-            const receipt = JSON.parse(fs.readFileSync(process.env.TJSV_BOUNDARY_RECEIPT, "utf8"));
+            const receiptPath = process.env.TJSV_BOUNDARY_RECEIPT;
+            const info = fs.statSync(receiptPath);
+            if ((info.mode & 0o777) !== 0o600) process.exit(1);
+            const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
             if (receipt.status !== "passed" || receipt.counts.admittedEvidence !== 5 || receipt.counts.findings !== 0) process.exit(1);
           '
           if grep -Eiq '(ghp_[A-Za-z0-9]{20,}|lin_api_[A-Za-z0-9]{20,}|authorization|bearer|password|secret|private[_-]?key)' "$TJSV_BOUNDARY_RECEIPT"; then
