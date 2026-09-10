@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TJSV_REVISION: 4740f1367a7906813dcd420a77d0c9ede26943fb
+  TJSV_REVISION: 5bab34e08856c47af3600adf40a4aa860fa71c01
 
 jobs:
   certify:
