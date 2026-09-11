@@ -1,0 +1,114 @@
+name: DEN-390 oresc current TJSV pin
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/den-390-oresc-current-tjsv-pin.yml'
+      - 'den-390/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-390-oresc-current-tjsv-pin.yml'
+      - 'den-390/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-390-oresc-current-tjsv-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TJSV_REVISION: 5bab34e08856c47af3600adf40a4aa860fa71c01
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: consumer
+          persist-credentials: false
+
+      - name: Verify exact test revision and fail-closed pin contract
+        working-directory: consumer
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RECEIPT: ${{ runner.temp }}/den-390-oresc-tjsv-pin.json
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node --check den-390/verify-oresc-tjsv-pin.mjs
+          node den-390/verify-oresc-tjsv-pin.mjs | tee "$RECEIPT"
+          node - "$RECEIPT" "$TJSV_REVISION" <<'NODE'
+          const fs = require('node:fs');
+          const [path, expected] = process.argv.slice(2);
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.status !== 'passed' || receipt.revision !== expected) throw new Error('pin receipt mismatch');
+          if (receipt.negativeCases !== 5) throw new Error('negative pin coverage drift');
+          NODE
+
+      - name: Check out public TJSV at the exact installed revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: ${{ env.TJSV_REVISION }}
+          path: public-tjsv
+          persist-credentials: false
+
+      - name: Verify exact upstream revision and required profiles
+        working-directory: public-tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TJSV_REVISION"
+          test -f src/language-boundary-verification.mjs
+          test -f schema/language-boundaries.schema.json
+          test -f schema/language-boundary-evidence.schema.json
+          test -f schema/language-boundary-verification.schema.json
+          test -f test/integration/lambda-runtime-contract.test.mjs
+          test -f test/unit/lambda-language-boundary.test.mjs
+
+      - name: Set up supported Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: public-tjsv/package-lock.json
+
+      - name: Install and audit the immutable validator closure
+        working-directory: public-tjsv
+        env:
+          TSJSV_NPM_AUDIT_RECEIPT: ${{ runner.temp }}/den-390-tjsv-npm-audit.json
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run audit:prod
+
+      - name: Run complete and focused TJSV gates
+        working-directory: public-tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:all
+          node --test ./test/unit/language-boundary*.test.mjs
+          node --test ./test/unit/lambda-language-boundary.test.mjs
+          node --test ./test/integration/lambda-runtime-contract.test.mjs
+          npm pack --dry-run
+          git diff --exit-code -- package.json package-lock.json src schema test
+
+      - name: Retain bounded certification receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: den-390-oresc-current-tjsv-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/den-390-oresc-tjsv-pin.json
+            ${{ runner.temp }}/den-390-tjsv-npm-audit.json
+          if-no-files-found: warn
+          retention-days: 30
