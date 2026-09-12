@@ -1,0 +1,27 @@
+{
+  "schema": "ores-chat-test.ores-cli-infra-gitops-source-lock/v1",
+  "upstream": {
+    "repository": "ORESoftware/ores-cli",
+    "pullRequest": 177,
+    "head": "0611b1853b7225e1cba8adca079e989d6816e051"
+  },
+  "validator": {
+    "repository": "ORESoftware/typespec-json-schema-validator",
+    "revision": "93dd73cb246a09b0a1c62d7192cc62ca6ecbe405"
+  },
+  "authorities": {
+    "typespec": {
+      "path": "main.tsp",
+      "upstreamBlob": "e428237547ceb588d788f0bff597478174519f58"
+    },
+    "jsonSchema": {
+      "path": "authored.schema.json",
+      "upstreamBlob": "fd6f1b60b2a2cb22c1ce75801bdef21d5ad05b8c"
+    },
+    "precedence": "none",
+    "generatedJsonSchemaRole": "comparison-evidence-only"
+  },
+  "expectedDeclarations": [
+    "Ores.InfraGitOps.InfraGitOpsContract"
+  ]
+}

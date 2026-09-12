@@ -1,0 +1,6 @@
+{
+  "supabaseRoot": "supabase",
+  "neonRoot": "neon",
+  "secretPolicy": "sops+age",
+  "promotionPolicy": "reviewed-pull-request"
+}
