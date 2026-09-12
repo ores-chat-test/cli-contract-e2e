@@ -43,7 +43,17 @@ pub(super) fn augment_contract_generated_evidence_audit(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return report.finalize(),
         Err(_) => return report.finalize(),
     };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+    if metadata.file_type().is_symlink() {
+        report.push(
+            Finding::error(
+                "contract-root-symlink",
+                "the contracts authority root must be a real repository directory, not a symlink",
+            )
+            .with_target(CONTRACTS_DIRECTORY),
+        );
+        return report.finalize();
+    }
+    if !metadata.is_dir() {
         return report.finalize();
     }
 
@@ -232,6 +242,22 @@ mod tests {
             report.metadata.get("contractAuthoredSourceCount"),
             Some(&JsonValue::from(2))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_contract_root() {
+        use std::os::unix::fs::symlink;
+
+        let report = audit(|root| {
+            write_authorities(root, "external-contracts/example");
+            symlink("external-contracts", root.join("contracts"))
+                .expect("symlinked contracts authority root");
+        });
+        assert!(report.findings.iter().any(|finding| {
+            finding.code == "contract-root-symlink"
+                && finding.target.as_deref() == Some("contracts")
+        }));
     }
 
     #[test]
