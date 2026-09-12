@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ORES_CLI_REVISION: 3ee638eb18f724e1d6a6f42d58fd4a2fa59587dc
-  EVIDENCE_BLOB: d5a32fbf05de53fadb0fa4125e2b1925fa8995a1
+  ORES_CLI_REVISION: 7b0685a9009b25735aec294dbe5c20a9943d3538
+  EVIDENCE_BLOB: f6d221a12b4dd094e487a14124ae6ed00eb4daa8
 
 jobs:
   certify:
@@ -47,6 +47,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           source_path=certification/den-3828-ores-cli-symlink/mirror/contract_generated_evidence.rs
           test "$(git hash-object "$source_path")" = "$EVIDENCE_BLOB"
+          grep -F '"contract-root-symlink"' "$source_path"
+          grep -F 'rejects_symlinked_contract_root' "$source_path"
           grep -F '"contract-evidence-symlink"' "$source_path"
           grep -F 'rejects_symlinked_schema_b_aliasing_authored_schema_a' "$source_path"
           grep -F 'TypeSpec and independently authored' "$source_path"
