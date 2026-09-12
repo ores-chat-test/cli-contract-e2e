@@ -60,6 +60,7 @@ jobs:
           report: .typespec-json-schema-validator/oresc-selected-fleet.report.json
           sarif: .typespec-json-schema-validator/oresc-selected-fleet.sarif
           contract_ir: .typespec-json-schema-validator/oresc-selected-fleet.contract-ir.json
+          output_dir: .typespec-json-schema-validator/generated
           quiet: "false"
       - name: Reverify Contract IR for the complete selected-fleet consumer scope
         uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
@@ -138,6 +139,7 @@ jobs:
           fi
       - name: Retain deterministic TJSV evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: oresc-selected-fleet-tjsv-${{ github.run_id }}
