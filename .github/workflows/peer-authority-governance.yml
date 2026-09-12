@@ -28,21 +28,27 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
   F2E_REF: 333c2ace93c362d274171ab0e0edf613d96a8e59
-  TJSV_REF: 6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+  TJSV_REF: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
   TYPESPEC_AUTHORITY: contracts/oresc-selected-fleet.v1.tsp
   JSON_SCHEMA_AUTHORITY: contracts/oresc-selected-fleet.v1.schema.json
+  EXPECTED_DECLARATIONS: '["Oresc.SelectedFleet.SelectedFleetContract","Oresc.SelectedFleet.SelectedFleetPair","Oresc.SelectedFleet.SelectedFleetPolicy","Oresc.SelectedFleet.SelectedFleetSource"]'
 
 jobs:
   certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.EXPECTED_HEAD }}
           persist-credentials: false
           show-progress: false
+
+      - name: Verify exact candidate revision
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 
       - name: Check out exact canonical flags-2-env source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .peer-authority-evidence
+          mkdir -p .peer-authority-evidence/main
           test -s "$TYPESPEC_AUTHORITY"
           test -s "$JSON_SCHEMA_AUTHORITY"
           grep -F 'https://json-schema.org/draft/2020-12/schema' "$JSON_SCHEMA_AUTHORITY"
@@ -87,27 +93,68 @@ jobs:
             > .peer-authority-evidence/authored-authorities.sha256
 
       - name: Transpile TypeSpec to comparison Schema B and compare with authored Schema A
-        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
         with:
           typespec: contracts/oresc-selected-fleet.v1.tsp
           schema: contracts/oresc-selected-fleet.v1.schema.json
           instances: contracts/instances
           report: .peer-authority-evidence/main/report.json
+          sarif: .peer-authority-evidence/main/report.sarif
           contract_ir: .peer-authority-evidence/main/contract-ir.json
           output_dir: .peer-authority-evidence/main/generated
           quiet: "false"
 
-      - name: Prove Schema B is generated evidence and authored peers stayed immutable
+      - name: Reverify current sources, parity receipt, and complete declaration scope
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          contract_ir: .peer-authority-evidence/main/contract-ir.json
+          report: .peer-authority-evidence/main/report.json
+          typespec: contracts/oresc-selected-fleet.v1.tsp
+          schema: contracts/oresc-selected-fleet.v1.schema.json
+          generated_schema: .peer-authority-evidence/main/generated/typespec.generated.schema.json
+          expected_declarations: ${{ env.EXPECTED_DECLARATIONS }}
+          verification: .peer-authority-evidence/main/consumer-verification.json
+
+      - name: Prove Schema B is evidence and both authored peers stayed first class
         shell: bash
         run: |
           set -euo pipefail
           test -f .peer-authority-evidence/main/generated/typespec.generated.schema.json
           test -f .peer-authority-evidence/main/report.json
+          test -f .peer-authority-evidence/main/report.sarif
           test -f .peer-authority-evidence/main/contract-ir.json
+          test -f .peer-authority-evidence/main/consumer-verification.json
+          jq -e '
+            .schema == "ores.typespec-json-schema-validator.report/v1" and
+            .status == "passed" and
+            .zeroUnexplainedFindings == true and
+            .authorities.precedence == "none" and
+            .authorities.typespec.authority == "independently-authored" and
+            .authorities.jsonSchema.authority == "independently-authored" and
+            .authorities.typespec.generatedJsonSchemaRole == "comparison-evidence-only" and
+            .coverage.typespecGeneratedJsonSchemaComparison == true and
+            .coverage.differentialInstanceValidation == true and
+            (.differential.summary.divergences // 0) == 0 and
+            (.differential.summary.refusals // 0) == 0
+          ' .peer-authority-evidence/main/report.json
+          jq -e '
+            .schema == "ores.typespec-json-schema-validator.contract-ir/v1" and
+            .status == "passed" and
+            .admissible == true and
+            .role == "downstream-derived-parity-artifact" and
+            .editableAuthority == false
+          ' .peer-authority-evidence/main/contract-ir.json
+          jq -e --argjson expected "$EXPECTED_DECLARATIONS" '
+            .schema == "ores.typespec-json-schema-validator.consumer-verification-receipt/v1" and
+            .status == "passed" and
+            .admissible == true and
+            .failureCode == null and
+            ((.declarationIds | sort) == ($expected | sort))
+          ' .peer-authority-evidence/main/consumer-verification.json
           sha256sum -c .peer-authority-evidence/authored-authorities.sha256
           git diff --exit-code -- "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY"
-          if git ls-files contracts | grep -Eq '(^|/)(typespec\.generated\.schema\.json|schema-b\.json)$'; then
-            echo 'generated comparison Schema B must not be tracked as an authored contract' >&2
+          if git ls-files contracts | grep -Eq '(^|/)(typespec\.generated\.schema\.json|schema-b\.json|contract-ir\.json|.*\.sarif)$'; then
+            echo 'generated comparison evidence must not be tracked as an authored contract' >&2
             exit 1
           fi
 
@@ -134,7 +181,7 @@ jobs:
       - name: Schema-A-only drift must fail parity
         id: schema_a_drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
         with:
           typespec: contracts/oresc-selected-fleet.v1.tsp
           schema: .peer-authority-evidence/drift-inputs/schema-a-only.schema.json
@@ -146,7 +193,7 @@ jobs:
       - name: TypeSpec-only drift must fail parity
         id: typespec_drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
         with:
           typespec: .peer-authority-evidence/drift-inputs/typespec-only.tsp
           schema: contracts/oresc-selected-fleet.v1.schema.json
@@ -170,6 +217,7 @@ jobs:
 
       - name: Retain public peer-authority evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: peer-authority-governance-${{ github.run_id }}
