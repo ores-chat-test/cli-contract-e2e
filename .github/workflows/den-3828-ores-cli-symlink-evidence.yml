@@ -1,0 +1,97 @@
+name: DEN-3828 ores-cli contract evidence symlink certificate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/den-3828-ores-cli-symlink-evidence.yml'
+      - 'certification/den-3828-ores-cli-symlink/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-3828-ores-cli-symlink-evidence.yml'
+      - 'certification/den-3828-ores-cli-symlink/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-3828-ores-cli-symlink-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORES_CLI_REVISION: 3ee638eb18f724e1d6a6f42d58fd4a2fa59587dc
+  EVIDENCE_BLOB: d5a32fbf05de53fadb0fa4125e2b1925fa8995a1
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact public test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: certificate
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+
+      - name: Verify exact test revision and mirrored ores-cli source identity
+        working-directory: certificate
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          source_path=certification/den-3828-ores-cli-symlink/mirror/contract_generated_evidence.rs
+          test "$(git hash-object "$source_path")" = "$EVIDENCE_BLOB"
+          grep -F '"contract-evidence-symlink"' "$source_path"
+          grep -F 'rejects_symlinked_schema_b_aliasing_authored_schema_a' "$source_path"
+          grep -F 'TypeSpec and independently authored' "$source_path"
+          grep -F 'comparison-only JSON Schema B' "$source_path"
+          grep -F 'compare B with authored JSON Schema A' "$source_path"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.95.0
+          components: clippy,rustfmt
+
+      - name: Resolve bounded certificate dependency graph
+        working-directory: certificate/certification/den-3828-ores-cli-symlink
+        run: cargo metadata --format-version 1 > /dev/null
+
+      - name: Check mirrored candidate formatting
+        working-directory: certificate/certification/den-3828-ores-cli-symlink
+        run: cargo fmt --all --check
+
+      - name: Run exact mirrored generated-evidence regressions
+        working-directory: certificate/certification/den-3828-ores-cli-symlink
+        run: cargo test --all-targets
+
+      - name: Run strict Clippy over exact mirrored source and harness
+        working-directory: certificate/certification/den-3828-ores-cli-symlink
+        run: cargo clippy --tests -- -D warnings
+
+      - name: Retain exact-source certificate
+        if: always()
+        working-directory: certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/den-3828-symlink-certificate"
+          printf '%s\n' "$ORES_CLI_REVISION" > "$RUNNER_TEMP/den-3828-symlink-certificate/ores-cli-revision.txt"
+          printf '%s\n' "$EVIDENCE_BLOB" > "$RUNNER_TEMP/den-3828-symlink-certificate/contract-generated-evidence.git-blob.txt"
+          sha256sum certification/den-3828-ores-cli-symlink/mirror/contract_generated_evidence.rs > "$RUNNER_TEMP/den-3828-symlink-certificate/contract-generated-evidence.sha256"
+
+      - name: Upload bounded certificate
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: den-3828-ores-cli-symlink-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/den-3828-symlink-certificate/
+          if-no-files-found: warn
+          retention-days: 30
