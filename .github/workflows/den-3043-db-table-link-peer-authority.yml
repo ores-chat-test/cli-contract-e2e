@@ -1,0 +1,140 @@
+name: DEN-3043 DB table-link peer authorities
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/den-3043-db-table-link-peer-authority.yml'
+      - 'contracts/den-3043/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-3043-db-table-link-peer-authority.yml'
+      - 'contracts/den-3043/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-3043-db-table-link-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TJSV_REF: 5bab34e08856c47af3600adf40a4aa860fa71c01
+  TYPESPEC_AUTHORITY: contracts/den-3043/main.tsp
+  JSON_SCHEMA_AUTHORITY: contracts/den-3043/authored.schema.json
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          show-progress: false
+
+      - name: Verify exact head and seal both authored authorities
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "${#TJSV_REF}" -eq 40
+          case "$TJSV_REF" in *[!0-9a-f]*) exit 1 ;; esac
+          test -s "$TYPESPEC_AUTHORITY"
+          test -s "$JSON_SCHEMA_AUTHORITY"
+          grep -F 'https://json-schema.org/draft/2020-12/schema' "$JSON_SCHEMA_AUTHORITY"
+          mkdir -p .den-3043-evidence
+          sha256sum "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY" > .den-3043-evidence/authored.sha256
+
+      - name: Transpile TypeSpec to comparison Schema B and compare with authored Schema A
+        uses: ORESoftware/typespec-json-schema-validator@5bab34e08856c47af3600adf40a4aa860fa71c01
+        with:
+          typespec: contracts/den-3043/main.tsp
+          schema: contracts/den-3043/authored.schema.json
+          instances: contracts/den-3043/instances
+          report: .den-3043-evidence/main/report.json
+          contract_ir: .den-3043-evidence/main/contract-ir.json
+          output_dir: .den-3043-evidence/main/generated
+          quiet: "false"
+
+      - name: Prove generated JSON Schema is evidence, not an authored authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .den-3043-evidence/main/generated/typespec.generated.schema.json
+          test -f .den-3043-evidence/main/report.json
+          test -f .den-3043-evidence/main/contract-ir.json
+          sha256sum -c .den-3043-evidence/authored.sha256
+          git diff --exit-code -- "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY"
+          if git ls-files contracts/den-3043 | grep -Eq '(^|/)(typespec\.generated\.schema\.json|schema-b\.json)$'; then
+            echo 'generated TypeSpec JSON Schema must not be tracked as an authored authority' >&2
+            exit 1
+          fi
+
+      - name: Build one-sided drift controls outside the authority tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .den-3043-evidence/drift
+          cp "$JSON_SCHEMA_AUTHORITY" .den-3043-evidence/drift/schema-only.schema.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('.den-3043-evidence/drift/schema-only.schema.json')
+          doc = json.loads(path.read_text())
+          doc['$defs']['DbTableAudit']['properties']['schemaVersion']['const'] = 'ores.db-table-audit/v2'
+          path.write_text(json.dumps(doc, indent=2) + '\n')
+          PY
+          sed 's/ores.db-table-audit\/v1/ores.db-table-audit\/v2/' "$TYPESPEC_AUTHORITY" > .den-3043-evidence/drift/typespec-only.tsp
+          sha256sum -c .den-3043-evidence/authored.sha256
+
+      - name: JSON-Schema-only drift must fail closed
+        id: schema_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@5bab34e08856c47af3600adf40a4aa860fa71c01
+        with:
+          typespec: contracts/den-3043/main.tsp
+          schema: .den-3043-evidence/drift/schema-only.schema.json
+          instances: contracts/den-3043/instances
+          report: .den-3043-evidence/schema-only/report.json
+          output_dir: .den-3043-evidence/schema-only/generated
+          quiet: "true"
+
+      - name: TypeSpec-only drift must fail closed
+        id: typespec_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@5bab34e08856c47af3600adf40a4aa860fa71c01
+        with:
+          typespec: .den-3043-evidence/drift/typespec-only.tsp
+          schema: contracts/den-3043/authored.schema.json
+          instances: contracts/den-3043/instances
+          report: .den-3043-evidence/typespec-only/report.json
+          output_dir: .den-3043-evidence/typespec-only/generated
+          quiet: "true"
+
+      - name: Require both independent-authority drift controls to fail
+        shell: bash
+        env:
+          SCHEMA_OUTCOME: ${{ steps.schema_drift.outcome }}
+          TYPESPEC_OUTCOME: ${{ steps.typespec_drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$SCHEMA_OUTCOME" = failure
+          test "$TYPESPEC_OUTCOME" = failure
+          sha256sum -c .den-3043-evidence/authored.sha256
+          git diff --check
+
+      - name: Retain peer-authority evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: den-3043-db-table-link-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .den-3043-evidence
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
