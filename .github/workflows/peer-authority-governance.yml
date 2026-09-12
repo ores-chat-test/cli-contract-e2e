@@ -1,0 +1,179 @@
+name: peer-authority-governance
+
+on:
+  pull_request:
+    paths:
+      - ".cli-flags.toml"
+      - "manifest.env"
+      - "contracts/oresc-selected-fleet.v1.tsp"
+      - "contracts/oresc-selected-fleet.v1.schema.json"
+      - "contracts/instances/**"
+      - ".github/workflows/peer-authority-governance.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".cli-flags.toml"
+      - "manifest.env"
+      - "contracts/oresc-selected-fleet.v1.tsp"
+      - "contracts/oresc-selected-fleet.v1.schema.json"
+      - "contracts/instances/**"
+      - ".github/workflows/peer-authority-governance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: peer-authority-governance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  F2E_REF: 333c2ace93c362d274171ab0e0edf613d96a8e59
+  TJSV_REF: 6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+  TYPESPEC_AUTHORITY: contracts/oresc-selected-fleet.v1.tsp
+  JSON_SCHEMA_AUTHORITY: contracts/oresc-selected-fleet.v1.schema.json
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          show-progress: false
+
+      - name: Check out exact canonical flags-2-env source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: flags-2-env/flags-2-env
+          ref: ${{ env.F2E_REF }}
+          path: .tools/flags-2-env
+          persist-credentials: false
+          show-progress: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.1
+          package-manager-cache: false
+
+      - name: Audit repository governance CLI and env inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#F2E_REF}" -eq 40
+          test "${#TJSV_REF}" -eq 40
+          case "$F2E_REF$TJSV_REF" in *[!0-9a-f]*) exit 1 ;; esac
+          test "$(git -C .tools/flags-2-env rev-parse HEAD)" = "$F2E_REF"
+          npm ci --prefix .tools/flags-2-env --no-audit --no-fund
+          node .tools/flags-2-env/clients/nodejs/cli.mjs audit .cli-flags.toml
+          node .tools/flags-2-env/clients/nodejs/cli.mjs env-manifest check . \
+            --manifest manifest.env \
+            --cli .cli-flags.toml \
+            --sops-all \
+            --dec-all
+
+      - name: Seal independently authored TypeSpec and JSON Schema A
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .peer-authority-evidence
+          test -s "$TYPESPEC_AUTHORITY"
+          test -s "$JSON_SCHEMA_AUTHORITY"
+          grep -F 'https://json-schema.org/draft/2020-12/schema' "$JSON_SCHEMA_AUTHORITY"
+          sha256sum "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY" \
+            > .peer-authority-evidence/authored-authorities.sha256
+
+      - name: Transpile TypeSpec to comparison Schema B and compare with authored Schema A
+        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        with:
+          typespec: contracts/oresc-selected-fleet.v1.tsp
+          schema: contracts/oresc-selected-fleet.v1.schema.json
+          instances: contracts/instances
+          report: .peer-authority-evidence/main/report.json
+          contract_ir: .peer-authority-evidence/main/contract-ir.json
+          output_dir: .peer-authority-evidence/main/generated
+          quiet: "false"
+
+      - name: Prove Schema B is generated evidence and authored peers stayed immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .peer-authority-evidence/main/generated/typespec.generated.schema.json
+          test -f .peer-authority-evidence/main/report.json
+          test -f .peer-authority-evidence/main/contract-ir.json
+          sha256sum -c .peer-authority-evidence/authored-authorities.sha256
+          git diff --exit-code -- "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY"
+          if git ls-files contracts | grep -Eq '(^|/)(typespec\.generated\.schema\.json|schema-b\.json)$'; then
+            echo 'generated comparison Schema B must not be tracked as an authored contract' >&2
+            exit 1
+          fi
+
+      - name: Build one-sided drift inputs outside the authority tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .peer-authority-evidence/drift-inputs
+          cp "$JSON_SCHEMA_AUTHORITY" .peer-authority-evidence/drift-inputs/schema-a-only.schema.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = '.peer-authority-evidence/drift-inputs/schema-a-only.schema.json';
+          const doc = JSON.parse(fs.readFileSync(path, 'utf8'));
+          doc.$defs.SelectedFleetPolicy.properties.primaryGitHubLogin.const = 'drift-owner';
+          fs.writeFileSync(path, JSON.stringify(doc, null, 2) + '\n');
+          NODE
+          sed 's/primaryGitHubLogin: "ORESoftware";/primaryGitHubLogin: "drift-owner";/' \
+            "$TYPESPEC_AUTHORITY" \
+            > .peer-authority-evidence/drift-inputs/typespec-only.tsp
+          grep -F 'primaryGitHubLogin: "drift-owner";' \
+            .peer-authority-evidence/drift-inputs/typespec-only.tsp
+          sha256sum -c .peer-authority-evidence/authored-authorities.sha256
+
+      - name: Schema-A-only drift must fail parity
+        id: schema_a_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        with:
+          typespec: contracts/oresc-selected-fleet.v1.tsp
+          schema: .peer-authority-evidence/drift-inputs/schema-a-only.schema.json
+          instances: contracts/instances
+          report: .peer-authority-evidence/schema-a-only/report.json
+          output_dir: .peer-authority-evidence/schema-a-only/generated
+          quiet: "true"
+
+      - name: TypeSpec-only drift must fail parity
+        id: typespec_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@6bb5b7c1ee41c8b43741e50a264c33a1165549c4
+        with:
+          typespec: .peer-authority-evidence/drift-inputs/typespec-only.tsp
+          schema: contracts/oresc-selected-fleet.v1.schema.json
+          instances: contracts/instances
+          report: .peer-authority-evidence/typespec-only/report.json
+          output_dir: .peer-authority-evidence/typespec-only/generated
+          quiet: "true"
+
+      - name: Require both one-sided drift controls to fail closed
+        shell: bash
+        env:
+          SCHEMA_A_OUTCOME: ${{ steps.schema_a_drift.outcome }}
+          TYPESPEC_OUTCOME: ${{ steps.typespec_drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$SCHEMA_A_OUTCOME" = failure
+          test "$TYPESPEC_OUTCOME" = failure
+          sha256sum -c .peer-authority-evidence/authored-authorities.sha256
+          git diff --exit-code -- "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY"
+          git diff --check
+
+      - name: Retain public peer-authority evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: peer-authority-governance-${{ github.run_id }}
+          path: .peer-authority-evidence
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
