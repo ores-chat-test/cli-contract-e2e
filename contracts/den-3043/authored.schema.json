@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores.db-table-audit.v1.schema.json",
+  "$defs": {
+    "DbTableLink": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "DbTableLink",
+      "type": "object",
+      "properties": {
+        "qualifiedName": { "type": "string" },
+        "schema": { "type": "string" },
+        "table": { "type": "string" },
+        "source": { "type": "string" },
+        "line": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "explicitSchema": { "type": "boolean" },
+        "quotedSchema": { "type": "boolean" },
+        "quotedTable": { "type": "boolean" }
+      },
+      "required": [
+        "qualifiedName",
+        "schema",
+        "table",
+        "source",
+        "line",
+        "explicitSchema",
+        "quotedSchema",
+        "quotedTable"
+      ],
+      "unevaluatedProperties": false
+    },
+    "DbTableAudit": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "DbTableAudit",
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "type": "string", "const": "ores.db-table-audit/v1" },
+        "tableCount": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "namespaceCount": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "DbTableLink" }
+        }
+      },
+      "required": ["schemaVersion", "tableCount", "namespaceCount", "links"],
+      "unevaluatedProperties": false
+    }
+  }
+}
