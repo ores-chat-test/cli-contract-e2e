@@ -42,30 +42,24 @@ jobs:
           node --check den-2843/verify-infra-profile.mjs
           node --test den-2843/infra-profile.test.mjs
 
-      - name: Check out exact public production sample
+      - name: Check out remediated exact public production sample
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: flags-2-env/flags-2-env-infra
-          ref: efd4db5b86d9252e28ad09d55769639a21951fcf
+          ref: b05f40645109dbbc4a735f672f269ac18bdbb6b7
           path: production-infra
           persist-credentials: false
-      - name: Prove production sample has only the known LICENSE blocker
+      - name: Require zero production infra findings after LICENSE remediation
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C production-infra rev-parse HEAD)" = 'efd4db5b86d9252e28ad09d55769639a21951fcf'
-          set +e
-          node consumer/den-2843/verify-infra-profile.mjs production-infra > "$RUNNER_TEMP/flags-2-env-infra.json"
-          status=$?
-          set -e
-          test "$status" -eq 2
+          test "$(git -C production-infra rev-parse HEAD)" = 'b05f40645109dbbc4a735f672f269ac18bdbb6b7'
+          node consumer/den-2843/verify-infra-profile.mjs production-infra | tee "$RUNNER_TEMP/flags-2-env-infra.json"
           node - "$RUNNER_TEMP/flags-2-env-infra.json" <<'NODE'
           const fs = require('node:fs');
           const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-          const actual = receipt.findings.map(({code, target}) => `${code}:${target}`);
-          const expected = ['required-path-missing:LICENSE'];
-          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-            throw new Error(`unexpected production drift: ${JSON.stringify(actual)}`);
+          if (!Array.isArray(receipt.findings) || receipt.findings.length !== 0) {
+            throw new Error(`production infra findings remain: ${JSON.stringify(receipt.findings)}`);
           }
           NODE
       - name: Prove test source stayed clean
