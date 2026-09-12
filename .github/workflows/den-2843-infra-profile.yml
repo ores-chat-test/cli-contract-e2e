@@ -1,0 +1,81 @@
+name: DEN-2843 infra profile acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'den-2843/**'
+      - '.github/workflows/den-2843-infra-profile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'den-2843/**'
+      - '.github/workflows/den-2843-infra-profile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: consumer
+          persist-credentials: false
+      - name: Verify exact test revision
+        working-directory: consumer
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+      - name: Run independent infra-profile corpus
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          node --check den-2843/verify-infra-profile.mjs
+          node --test den-2843/infra-profile.test.mjs
+
+      - name: Check out exact public production sample
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: flags-2-env/flags-2-env-infra
+          ref: efd4db5b86d9252e28ad09d55769639a21951fcf
+          path: production-infra
+          persist-credentials: false
+      - name: Prove production sample has only the known LICENSE blocker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C production-infra rev-parse HEAD)" = 'efd4db5b86d9252e28ad09d55769639a21951fcf'
+          set +e
+          node consumer/den-2843/verify-infra-profile.mjs production-infra > "$RUNNER_TEMP/flags-2-env-infra.json"
+          status=$?
+          set -e
+          test "$status" -eq 2
+          node - "$RUNNER_TEMP/flags-2-env-infra.json" <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const actual = receipt.findings.map(({code, target}) => `${code}:${target}`);
+          const expected = ['required-path-missing:LICENSE'];
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error(`unexpected production drift: ${JSON.stringify(actual)}`);
+          }
+          NODE
+      - name: Prove test source stayed clean
+        working-directory: consumer
+        run: git diff --exit-code
+      - name: Retain bounded acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: den-2843-infra-profile-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/flags-2-env-infra.json
+          if-no-files-found: warn
+          retention-days: 30
