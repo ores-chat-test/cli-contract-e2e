@@ -1,0 +1,208 @@
+name: DEN-3828 ores-cli Infra GitOps contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/den-3828-ores-cli-infra-gitops.yml"
+      - "den-3828/ores-cli-infra-gitops/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/den-3828-ores-cli-infra-gitops.yml"
+      - "den-3828/ores-cli-infra-gitops/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-3828-ores-cli-infra-gitops-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  TJSV_REF: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+  ROOT: den-3828/ores-cli-infra-gitops
+  TYPESPEC_AUTHORITY: den-3828/ores-cli-infra-gitops/main.tsp
+  JSON_SCHEMA_AUTHORITY: den-3828/ores-cli-infra-gitops/authored.schema.json
+  INSTANCES: den-3828/ores-cli-infra-gitops/instances
+  EXPECTED_DECLARATIONS: '["Ores.InfraGitOps.InfraGitOpsContract"]'
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact test candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          persist-credentials: false
+          show-progress: false
+
+      - name: Verify exact test head and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          jq -e \
+            --arg validator "$TJSV_REF" \
+            --argjson declarations "$EXPECTED_DECLARATIONS" '
+            .schema == "ores-chat-test.ores-cli-infra-gitops-source-lock/v1" and
+            .upstream.repository == "ORESoftware/ores-cli" and
+            .upstream.pullRequest == 177 and
+            (.upstream.head | test("^[0-9a-f]{40}$")) and
+            .validator.repository == "ORESoftware/typespec-json-schema-validator" and
+            .validator.revision == $validator and
+            .authorities.typespec.path == "main.tsp" and
+            (.authorities.typespec.upstreamBlob | test("^[0-9a-f]{40}$")) and
+            .authorities.jsonSchema.path == "authored.schema.json" and
+            (.authorities.jsonSchema.upstreamBlob | test("^[0-9a-f]{40}$")) and
+            .authorities.precedence == "none" and
+            .authorities.generatedJsonSchemaRole == "comparison-evidence-only" and
+            .expectedDeclarations == $declarations
+          ' "$ROOT/source-lock.json"
+          test "$(git hash-object "$TYPESPEC_AUTHORITY")" = "$(jq -r '.authorities.typespec.upstreamBlob' "$ROOT/source-lock.json")"
+          test "$(git hash-object "$JSON_SCHEMA_AUTHORITY")" = "$(jq -r '.authorities.jsonSchema.upstreamBlob' "$ROOT/source-lock.json")"
+          grep -F 'https://json-schema.org/draft/2020-12/schema' "$JSON_SCHEMA_AUTHORITY"
+
+      - name: Seal both independently authored authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ores-cli-infra-evidence/main
+          sha256sum "$TYPESPEC_AUTHORITY" "$JSON_SCHEMA_AUTHORITY" \
+            > .ores-cli-infra-evidence/authored.sha256
+
+      - name: Transpile TypeSpec to Schema B and compare with authored Schema A
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          typespec: den-3828/ores-cli-infra-gitops/main.tsp
+          schema: den-3828/ores-cli-infra-gitops/authored.schema.json
+          instances: den-3828/ores-cli-infra-gitops/instances
+          report: .ores-cli-infra-evidence/main/report.json
+          sarif: .ores-cli-infra-evidence/main/report.sarif
+          contract_ir: .ores-cli-infra-evidence/main/contract-ir.json
+          output_dir: .ores-cli-infra-evidence/main/generated
+          quiet: "false"
+
+      - name: Reverify complete current Contract IR scope
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          contract_ir: .ores-cli-infra-evidence/main/contract-ir.json
+          report: .ores-cli-infra-evidence/main/report.json
+          typespec: den-3828/ores-cli-infra-gitops/main.tsp
+          schema: den-3828/ores-cli-infra-gitops/authored.schema.json
+          generated_schema: .ores-cli-infra-evidence/main/generated/typespec.generated.schema.json
+          expected_declarations: ${{ env.EXPECTED_DECLARATIONS }}
+          verification: .ores-cli-infra-evidence/main/consumer-verification.json
+
+      - name: Prove altered and incomplete consumer evidence is rejected
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          contract_ir: .ores-cli-infra-evidence/main/contract-ir.json
+          report: .ores-cli-infra-evidence/main/report.json
+          typespec: den-3828/ores-cli-infra-gitops/main.tsp
+          schema: den-3828/ores-cli-infra-gitops/authored.schema.json
+          generated_schema: .ores-cli-infra-evidence/main/generated/typespec.generated.schema.json
+          expected_declarations: ${{ env.EXPECTED_DECLARATIONS }}
+          verification: .ores-cli-infra-evidence/main/consumer-regression-verification.json
+
+      - name: Require first-class peer authority and comparison-evidence invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .schema == "ores.typespec-json-schema-validator.report/v1" and
+            .status == "passed" and
+            .zeroUnexplainedFindings == true and
+            .authorities.precedence == "none" and
+            .authorities.typespec.authority == "independently-authored" and
+            .authorities.jsonSchema.authority == "independently-authored" and
+            .authorities.typespec.generatedJsonSchemaRole == "comparison-evidence-only" and
+            .coverage.typespecGeneratedJsonSchemaComparison == true and
+            .coverage.differentialInstanceValidation == true and
+            (.differential.summary.divergences // 0) == 0 and
+            (.differential.summary.refusals // 0) == 0
+          ' .ores-cli-infra-evidence/main/report.json
+          jq -e '
+            .schema == "ores.typespec-json-schema-validator.contract-ir/v1" and
+            .status == "passed" and
+            .admissible == true and
+            .role == "downstream-derived-parity-artifact" and
+            .editableAuthority == false
+          ' .ores-cli-infra-evidence/main/contract-ir.json
+          jq -e --argjson expected "$EXPECTED_DECLARATIONS" '
+            .status == "passed" and
+            .admissible == true and
+            .failureCode == null and
+            ((.declarationIds | sort) == ($expected | sort))
+          ' .ores-cli-infra-evidence/main/consumer-verification.json
+          sha256sum -c .ores-cli-infra-evidence/authored.sha256
+
+      - name: Build one-sided drift controls outside the authority tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ores-cli-infra-evidence/drift
+          sed 's/neonRoot: string;/neonRoot?: string;/' "$TYPESPEC_AUTHORITY" \
+            > .ores-cli-infra-evidence/drift/typespec-only.tsp
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = process.env.JSON_SCHEMA_AUTHORITY;
+          const target = '.ores-cli-infra-evidence/drift/schema-only.schema.json';
+          const schema = JSON.parse(fs.readFileSync(source, 'utf8'));
+          schema.$defs.InfraGitOpsContract.required = schema.$defs.InfraGitOpsContract.required
+            .filter((name) => name !== 'neonRoot');
+          fs.writeFileSync(target, `${JSON.stringify(schema, null, 2)}\n`);
+          NODE
+          grep -F 'neonRoot?: string;' .ores-cli-infra-evidence/drift/typespec-only.tsp
+          sha256sum -c .ores-cli-infra-evidence/authored.sha256
+
+      - name: TypeSpec-only drift must fail closed
+        id: typespec_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          typespec: .ores-cli-infra-evidence/drift/typespec-only.tsp
+          schema: den-3828/ores-cli-infra-gitops/authored.schema.json
+          instances: den-3828/ores-cli-infra-gitops/instances
+          report: .ores-cli-infra-evidence/typespec-only/report.json
+          output_dir: .ores-cli-infra-evidence/typespec-only/generated
+          quiet: "true"
+
+      - name: JSON-Schema-only drift must fail closed
+        id: schema_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+        with:
+          typespec: den-3828/ores-cli-infra-gitops/main.tsp
+          schema: .ores-cli-infra-evidence/drift/schema-only.schema.json
+          instances: den-3828/ores-cli-infra-gitops/instances
+          report: .ores-cli-infra-evidence/schema-only/report.json
+          output_dir: .ores-cli-infra-evidence/schema-only/generated
+          quiet: "true"
+
+      - name: Require both one-sided drift controls to reject
+        env:
+          TYPESPEC_DRIFT_OUTCOME: ${{ steps.typespec_drift.outcome }}
+          SCHEMA_DRIFT_OUTCOME: ${{ steps.schema_drift.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$TYPESPEC_DRIFT_OUTCOME" = failure
+          test "$SCHEMA_DRIFT_OUTCOME" = failure
+          sha256sum -c .ores-cli-infra-evidence/authored.sha256
+          git diff --exit-code -- "$ROOT"
+          git diff --check
+
+      - name: Retain deterministic public contract evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ores-cli-infra-gitops-${{ github.run_id }}
+          path: .ores-cli-infra-evidence
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
