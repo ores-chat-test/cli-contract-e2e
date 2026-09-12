@@ -1,0 +1,5 @@
+{
+  "supabaseRoot": "supabase",
+  "secretPolicy": "sops+age",
+  "promotionPolicy": "reviewed-pull-request"
+}
