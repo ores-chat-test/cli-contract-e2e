@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "ores.db-table-audit/v1",
+  "tableCount": 2,
+  "namespaceCount": 2,
+  "links": [
+    {
+      "qualifiedName": "public.audit_engagement",
+      "schema": "public",
+      "table": "audit_engagement",
+      "source": "migrations/0001_init.sql",
+      "line": 12,
+      "explicitSchema": false,
+      "quotedSchema": false,
+      "quotedTable": false
+    },
+    {
+      "qualifiedName": "ledger.journal_entry",
+      "schema": "ledger",
+      "table": "journal_entry",
+      "source": "sql/schema.sql",
+      "line": 41,
+      "explicitSchema": true,
+      "quotedSchema": false,
+      "quotedTable": false
+    }
+  ]
+}
