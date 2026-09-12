@@ -1,0 +1,24 @@
+# Repository-level CLI/env contract for public ores-cli acceptance evidence.
+# This test harness has no application runtime CLI; only governance commands are
+# described here, and no ambient runtime environment values are invented.
+
+[help]
+url = "https://github.com/ores-chat-test/cli-contract-e2e"
+columns = ["options", "env", "type", "default", "description"]
+
+[env]
+files = []
+
+[parse]
+command_env = "ORES_CHAT_TEST_GOVERNANCE_COMMAND"
+unknown_options_env = "ORES_CHAT_TEST_UNKNOWN_OPTIONS"
+errors_env = "ORES_CHAT_TEST_PARSE_ERRORS"
+allow_unknown = false
+
+[commands.contract-admission]
+help = "Validate public ores-cli contract, peer-authority parity, and adversarial drift evidence."
+env = "ORES_CHAT_TEST_CONTRACT_ADMISSION"
+
+# BEGIN flags2env env-manifest v1
+# schema=ores.env-manifest.v1 sha256=fdab1ef9d104d75ff7a406ddc5487a6595779b7ec0674b925f336cbac14afae7
+# END flags2env env-manifest v1
