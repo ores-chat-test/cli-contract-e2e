@@ -1,0 +1,87 @@
+name: Public Rust offline kit
+
+on:
+  pull_request:
+    paths: ['.github/workflows/public-rust-kit.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-kit:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # No application checkout: only official Rust and public dependencies.
+      - name: Install the pinned public compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+          rustc +1.95.0 --version --verbose
+          cargo +1.95.0 --version
+      - name: Prepare public dependency sources without executing application code
+        shell: bash
+        env:
+          CARGO_HOME: ${{ runner.temp }}/public-kit-cargo
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/public-kit"
+          mkdir -p "$root" "$RUNNER_TEMP/public-kit-artifacts"
+          for lane in old next; do
+            revision=2310d349cb87dfe7eac88ac67677e029c3e13167
+            if [ "$lane" = next ]; then revision=3414281ed8d7339d5bfabf951048bff31aa3349e; fi
+            mkdir -p "$root/$lane/bootstrap/src"
+            cat > "$root/$lane/bootstrap/Cargo.toml" <<TOML
+          [package]
+          name = "public-rust-test-kit"
+          version = "0.0.0"
+          edition = "2024"
+          publish = false
+          [dependencies]
+          flags2env = { git = "https://github.com/flags-2-env/flags-2-env.git", rev = "$revision" }
+          next-loggers = { package = "oresoftware-next-loggers", git = "https://github.com/ores-otel/ores.otel.log", rev = "74bc1c421f5a56be28cade1a47f5d45de51f3b4b" }
+          ores-middleware = { git = "https://github.com/ORESoftware/ores-middleware.git", rev = "6b53c965c8c23655e62a3b27600ae5a107e3369d", default-features = false }
+          serde = { version = "1", features = ["derive"] }
+          serde_json = "=1.0.151"
+          thiserror = "2"
+          tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
+          toml = "0.8"
+          walkdir = "2"
+          tempfile = "3"
+          TOML
+            printf 'fn main() {}\n' > "$root/$lane/bootstrap/src/main.rs"
+            cargo +1.95.0 vendor --versioned-dirs --manifest-path "$root/$lane/bootstrap/Cargo.toml" "$root/$lane/vendor" > "$root/$lane/config.toml"
+          done
+          # Only vendored public sources and generated public bootstrap manifests
+          # are exported. Never archive CARGO_HOME, checkout credentials, or .git.
+          test -z "$(find "$root" \( -name .git -o -name credentials -o -name credentials.toml \) -print -quit)"
+          tar -C "$root" -czf "$RUNNER_TEMP/public-kit-artifacts/public-dependencies.tar.gz" old next
+      - name: Export compiler and smoke-test relocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/public-kit-artifacts"
+          sysroot="$(rustc +1.95.0 --print sysroot)"
+          tar -C "$sysroot" -czf "$output/rust-1.95.0-x86_64-unknown-linux-gnu.tar.gz" .
+          mkdir -p "$RUNNER_TEMP/relocated-rust"
+          tar -C "$RUNNER_TEMP/relocated-rust" -xzf "$output/rust-1.95.0-x86_64-unknown-linux-gnu.tar.gz"
+          compiler="$RUNNER_TEMP/relocated-rust/bin/rustc"
+          printf 'fn main() { println!("public compiler relocation passed"); }\n' > "$RUNNER_TEMP/kit-smoke.rs"
+          "$compiler" "$RUNNER_TEMP/kit-smoke.rs" -o "$RUNNER_TEMP/kit-smoke"
+          "$RUNNER_TEMP/kit-smoke"
+          "$RUNNER_TEMP/relocated-rust/bin/rustfmt" --version
+          "$RUNNER_TEMP/relocated-rust/bin/clippy-driver" --version
+          cd "$output"
+          sha256sum ./*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Upload public-only kit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-rust-1.95.0-offline-kit
+          path: ${{ runner.temp }}/public-kit-artifacts/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
