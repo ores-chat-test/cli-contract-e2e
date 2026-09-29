@@ -1,4 +1,4 @@
-name: DEN-390 ores-cli invocation diagnostics
+name: DEN-390 ores-cli invocation contract
 
 on:
   pull_request:
@@ -10,42 +10,37 @@ permissions:
   contents: read
 
 concurrency:
-  group: den-390-invocation-diagnostics-${{ github.workflow }}-${{ github.ref }}
+  group: den-390-invocation-contract-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  exact-private-source:
+  flags2env-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
-      ORES_CLI_SHA: 0785d5f82cca140bfdc5753d6995cdd7d746ddda
-      CROSS_REPO_READ_TOKEN: ${{ secrets.ORES_CLI_READ_TOKEN || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN || secrets['cross-repo-token'] }}
+      FLAGS2ENV_SHA: 3414281ed8d7339d5bfabf951048bff31aa3349e
     steps:
-      - name: Require approved private-source read credential
-        run: |
-          set -euo pipefail
-          test -n "${CROSS_REPO_READ_TOKEN:-}" || {
-            echo "a governed cross-repository read credential is required for private-source verification" >&2
-            exit 2
-          }
-
-      - name: Check out exact ores-cli source
+      - name: Check out certificate repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          repository: ORESoftware/ores-cli
-          ref: ${{ env.ORES_CLI_SHA }}
-          token: ${{ env.CROSS_REPO_READ_TOKEN }}
           persist-credentials: false
-          path: ores-cli
 
-      - name: Verify exact source identity
-        working-directory: ores-cli
+      - name: Check out exact public flags-2-env revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: flags-2-env/flags-2-env
+          ref: ${{ env.FLAGS2ENV_SHA }}
+          persist-credentials: false
+          path: flags2env
+
+      - name: Verify parser source identity
+        working-directory: flags2env
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$ORES_CLI_SHA"
+          test "$(git rev-parse HEAD)" = "$FLAGS2ENV_SHA"
           test -z "$(git status --porcelain)"
 
-      - name: Install declared MSRV toolchain
+      - name: Install ores-cli declared MSRV
         run: |
           set -euo pipefail
           rustup toolchain install 1.88.0 --profile minimal --component rustfmt clippy
@@ -53,120 +48,202 @@ jobs:
           rustc --version
           cargo --version
 
-      - name: Format and compile focused binary tests
-        working-directory: ores-cli
+      - name: Add non-private DEN-390 contract fixture
+        working-directory: flags2env
         run: |
           set -euo pipefail
-          cargo fmt --all --check
-          cargo test --locked --bin oresc invocation_diagnostic
-          cargo clippy --locked --bin oresc -- -D warnings
-          cargo build --locked --bin oresc
+          cat > tests/den390_ores_cli_contract.rs <<'RS'
+          use std::fs;
+          use std::path::PathBuf;
 
-      - name: Verify misspelled flag survives broken runtime contract
-        working-directory: ores-cli
+          use flags2env::BundledFlags2Env;
+
+          const CONTRACT: &str = r#"
+          [env]
+          files = []
+
+          [parse]
+          command_env = "TEST_COMMAND"
+          positionals_env = "TEST_POSITIONALS"
+          unknown_options_env = "TEST_UNKNOWN_OPTIONS"
+          errors_env = "TEST_PARSE_ERRORS"
+          allow_unknown = false
+
+          [flags.json]
+          env = "TEST_JSON"
+          aliases = ["json"]
+          type = "bool"
+          default = "true"
+          true_aliases = ["t", "1", "yes"]
+          false_aliases = ["f", "0", "no"]
+
+          [flags.colors]
+          env = "TEST_COLORS"
+          aliases = ["colors"]
+          type = "bool"
+          default = "true"
+          true_aliases = ["t", "1", "yes"]
+          false_aliases = ["f", "0", "no"]
+
+          [commands.org]
+          env = "TEST_COMMAND_ORG"
+
+          [commands.org.flags.name]
+          env = "TEST_ORG_NAME"
+          aliases = ["name", "org", "owner"]
+          short = "n"
+          type = "string"
+
+          [commands.org.flags.family-prefix]
+          env = "TEST_ORG_FAMILY_PREFIX"
+          aliases = ["family-prefix", "prefix", "prefix-family"]
+          type = "string"
+
+          [commands.org.commands.list-missing-repos]
+          env = "TEST_COMMAND_ORG_LIST_MISSING_REPOS"
+
+          [commands.org.commands.list-missing-repos.flags.report]
+          env = "TEST_ORG_LIST_REPORT"
+          aliases = ["report"]
+          type = "bool"
+          default = "false"
+          "#;
+
+          fn argv(values: &[&str]) -> Vec<String> {
+              values.iter().map(|value| (*value).to_owned()).collect()
+          }
+
+          fn contract_file() -> PathBuf {
+              let path = std::env::temp_dir().join(format!(
+                  "den390-flags2env-{}-{}.toml",
+                  std::process::id(),
+                  std::thread::current().name().unwrap_or("test")
+              ));
+              fs::write(&path, CONTRACT).expect("write fixture contract");
+              path
+          }
+
+          #[test]
+          fn contract_audits_and_prefix_alias_resolves() {
+              let path = contract_file();
+              let path_str = path.to_str().expect("UTF-8 path");
+              let parser = BundledFlags2Env::new();
+              parser.audit_config(Some(path_str)).expect("fixture audit");
+
+              let args = argv(&[
+                  "oresc",
+                  "org",
+                  "--name=litegraph",
+                  "--prefix=ltgr",
+                  "list-missing-repos",
+              ]);
+              let structured = parser
+                  .parse_structured(&args, Some(path_str))
+                  .expect("structured parse");
+              assert!(structured.unknown_options.is_empty());
+              assert!(structured.errors.is_empty());
+              assert_eq!(
+                  structured.provided_flags.get("TEST_ORG_NAME").map(String::as_str),
+                  Some("litegraph")
+              );
+              assert_eq!(
+                  structured
+                      .provided_flags
+                      .get("TEST_ORG_FAMILY_PREFIX")
+                      .map(String::as_str),
+                  Some("ltgr")
+              );
+              let commands = parser
+                  .resolve_commands(&args, Some(path_str))
+                  .expect("command resolution");
+              assert_eq!(
+                  commands.path,
+                  vec!["org".to_owned(), "list-missing-repos".to_owned()]
+              );
+              let _ = fs::remove_file(path);
+          }
+
+          #[test]
+          fn typo_and_arbitrary_unknown_options_fail_closed() {
+              let path = contract_file();
+              let path_str = path.to_str().expect("UTF-8 path");
+              let parser = BundledFlags2Env::new();
+
+              for unknown in ["--preix=ltgr", "--definitely-not-real=opaque-value"] {
+                  let args = argv(&[
+                      "oresc",
+                      "org",
+                      "--name=litegraph",
+                      unknown,
+                      "list-missing-repos",
+                  ]);
+                  let structured = parser
+                      .parse_structured(&args, Some(path_str))
+                      .expect("structured parse");
+                  assert_eq!(structured.unknown_options.len(), 1, "{unknown}");
+                  assert!(structured.errors.is_empty(), "{unknown}");
+              }
+              let _ = fs::remove_file(path);
+          }
+
+          #[test]
+          fn typed_boolean_forms_and_negation_are_canonical() {
+              let path = contract_file();
+              let path_str = path.to_str().expect("UTF-8 path");
+              let parser = BundledFlags2Env::new();
+
+              let args = argv(&[
+                  "oresc",
+                  "--json=yes",
+                  "--colors=false",
+                  "org",
+                  "--name=litegraph",
+                  "list-missing-repos",
+              ]);
+              let structured = parser
+                  .parse_structured(&args, Some(path_str))
+                  .expect("typed boolean parse");
+              assert!(structured.unknown_options.is_empty());
+              assert!(structured.errors.is_empty());
+              assert_eq!(
+                  structured.provided_flags.get("TEST_JSON").map(String::as_str),
+                  Some("true")
+              );
+              assert_eq!(
+                  structured.provided_flags.get("TEST_COLORS").map(String::as_str),
+                  Some("false")
+              );
+
+              let negated = argv(&[
+                  "oresc",
+                  "--no-colors",
+                  "org",
+                  "--name=litegraph",
+                  "list-missing-repos",
+              ]);
+              let structured = parser
+                  .parse_structured(&negated, Some(path_str))
+                  .expect("negated boolean parse");
+              assert_eq!(
+                  structured.provided_flags.get("TEST_COLORS").map(String::as_str),
+                  Some("false")
+              );
+              let _ = fs::remove_file(path);
+          }
+          RS
+          rustfmt +1.88.0 --check tests/den390_ores_cli_contract.rs
+
+      - name: Run exact-revision parser acceptance
+        working-directory: flags2env
         run: |
           set -euo pipefail
-          broken="$RUNNER_TEMP/broken-cli-flags.toml"
-          printf '%s\n' '[parse' > "$broken"
-          stdout="$RUNNER_TEMP/typo.stdout"
-          stderr="$RUNNER_TEMP/typo.stderr"
-          set +e
-          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
-            org --name=litegraph --preix=ltgr list-missing-repos \
-            >"$stdout" 2>"$stderr"
-          status=$?
-          set -e
-          test "$status" -ne 0
-          test ! -s "$stdout"
-          grep -F "ores-cli runtime error: invalid invocation: flag contract audit failed; the flag '--preix' was not recognized" "$stderr"
-          grep -F 'expected: --prefix' "$stderr"
-          grep -F 'hint: did you mean `--prefix`?' "$stderr"
-          if grep -Fq 'ltgr' "$stderr"; then
-            echo "inline flag value leaked into diagnostic" >&2
-            exit 1
-          fi
+          cargo +1.88.0 test --locked --test den390_ores_cli_contract -- --nocapture
+          cargo +1.88.0 clippy --locked --test den390_ores_cli_contract -- -D warnings
 
-      - name: Verify separate typo values do not corrupt command diagnosis
-        working-directory: ores-cli
+      - name: Prove upstream checkout was otherwise untouched
+        working-directory: flags2env
         run: |
           set -euo pipefail
-          broken="$RUNNER_TEMP/broken-cli-flags.toml"
-          stderr="$RUNNER_TEMP/typo-separated.stderr"
-          set +e
-          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
-            org --name litegraph --preix ltgr list-missing-repos \
-            >/dev/null 2>"$stderr"
-          status=$?
-          set -e
-          test "$status" -ne 0
-          grep -F "the flag '--preix' was not recognized" "$stderr"
-          grep -F 'example: oresc org --name=<org> --prefix=<prefix> list-missing-repos' "$stderr"
-          if grep -Fq 'ltgr' "$stderr"; then
-            echo "separate flag value leaked into diagnostic" >&2
-            exit 1
-          fi
-
-      - name: Verify explicit structured boolean forms
-        working-directory: ores-cli
-        run: |
-          set -euo pipefail
-          broken="$RUNNER_TEMP/broken-cli-flags.toml"
-          stdout="$RUNNER_TEMP/json.stdout"
-          stderr="$RUNNER_TEMP/json.stderr"
-          set +e
-          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
-            --json=true org --name=litegraph --preix=ltgr list-missing-repos \
-            >"$stdout" 2>"$stderr"
-          status=$?
-          set -e
-          test "$status" -ne 0
-          test ! -s "$stderr"
-          jq -e '.schema == "ores-cli/error/v1" and .ok == false and .error.kind == "unknown-option" and .error.offending == ["--preix"] and .error.expected == ["--prefix"]' "$stdout" >/dev/null
-          if grep -q $'\033' "$stdout"; then
-            echo "structured JSON diagnostic contains ANSI" >&2
-            exit 1
-          fi
-
-      - name: Verify interactive colors default on and explicit false disables them
-        working-directory: ores-cli
-        run: |
-          set -euo pipefail
-          broken="$RUNNER_TEMP/broken-cli-flags.toml"
-          colored="$RUNNER_TEMP/colored.typescript"
-          plain="$RUNNER_TEMP/plain.typescript"
-          no_color="$RUNNER_TEMP/no-color.typescript"
-
-          set +e
-          script -q -e -c "FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc org --name=litegraph --preix=ltgr list-missing-repos" "$colored"
-          colored_status=$?
-          script -q -e -c "FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc --colors=false org --name=litegraph --preix=ltgr list-missing-repos" "$plain"
-          plain_status=$?
-          script -q -e -c "NO_COLOR=1 FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc org --name=litegraph --preix=ltgr list-missing-repos" "$no_color"
-          no_color_status=$?
-          set -e
-
-          test "$colored_status" -ne 0
-          test "$plain_status" -ne 0
-          test "$no_color_status" -ne 0
-          grep -Fq $'\033[1;31mores-cli runtime error:\033[0m' "$colored"
-          if grep -Fq $'\033[' "$plain"; then
-            echo "--colors=false did not suppress ANSI" >&2
-            exit 1
-          fi
-          if grep -Fq $'\033[' "$no_color"; then
-            echo "NO_COLOR did not suppress ANSI" >&2
-            exit 1
-          fi
-
-      - name: Reject credential-shaped output and conflict markers
-        working-directory: ores-cli
-        run: |
-          set -euo pipefail
-          if grep -RInE '^(<{7}|={7}|>{7})( |$)' src/bin/invocation_diagnostic.rs; then
-            echo "unresolved conflict marker found" >&2
-            exit 1
-          fi
-          if grep -RInE '(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----)' src/bin/invocation_diagnostic.rs; then
-            echo "credential-shaped value found" >&2
-            exit 1
-          fi
+          test "$(git rev-parse HEAD)" = "$FLAGS2ENV_SHA"
+          changes="$(git status --porcelain)"
+          test "$changes" = '?? tests/den390_ores_cli_contract.rs'
