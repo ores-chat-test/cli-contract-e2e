@@ -1,0 +1,173 @@
+name: DEN-390 ores-cli invocation diagnostics
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/den-390-invocation-diagnostics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-390-invocation-diagnostics-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-private-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ORES_CLI_SHA: 0785d5f82cca140bfdc5753d6995cdd7d746ddda
+    steps:
+      - name: Require approved private-source read credential
+        env:
+          ORES_CLI_READ_TOKEN: ${{ secrets.ORES_CLI_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${ORES_CLI_READ_TOKEN:-}" || {
+            echo "ORES_CLI_READ_TOKEN is required for private-source verification" >&2
+            exit 2
+          }
+
+      - name: Check out exact ores-cli source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/ores-cli
+          ref: ${{ env.ORES_CLI_SHA }}
+          token: ${{ secrets.ORES_CLI_READ_TOKEN }}
+          persist-credentials: false
+          path: ores-cli
+
+      - name: Verify exact source identity
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$ORES_CLI_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Install declared MSRV toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt clippy
+          rustup default 1.88.0
+          rustc --version
+          cargo --version
+
+      - name: Format and compile focused binary tests
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo test --locked --bin oresc invocation_diagnostic
+          cargo clippy --locked --bin oresc -- -D warnings
+          cargo build --locked --bin oresc
+
+      - name: Verify misspelled flag survives broken runtime contract
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          broken="$RUNNER_TEMP/broken-cli-flags.toml"
+          printf '%s\n' '[parse' > "$broken"
+          stdout="$RUNNER_TEMP/typo.stdout"
+          stderr="$RUNNER_TEMP/typo.stderr"
+          set +e
+          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
+            org --name=litegraph --preix=ltgr list-missing-repos \
+            >"$stdout" 2>"$stderr"
+          status=$?
+          set -e
+          test "$status" -ne 0
+          test ! -s "$stdout"
+          grep -F "ores-cli runtime error: invalid invocation: flag contract audit failed; the flag '--preix' was not recognized" "$stderr"
+          grep -F 'expected: --prefix' "$stderr"
+          grep -F 'hint: did you mean `--prefix`?' "$stderr"
+          if grep -Fq 'ltgr' "$stderr"; then
+            echo "inline flag value leaked into diagnostic" >&2
+            exit 1
+          fi
+
+      - name: Verify separate typo values do not corrupt command diagnosis
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          broken="$RUNNER_TEMP/broken-cli-flags.toml"
+          stderr="$RUNNER_TEMP/typo-separated.stderr"
+          set +e
+          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
+            org --name litegraph --preix ltgr list-missing-repos \
+            >/dev/null 2>"$stderr"
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F "the flag '--preix' was not recognized" "$stderr"
+          grep -F 'example: oresc org --name=<org> --prefix=<prefix> list-missing-repos' "$stderr"
+          if grep -Fq 'ltgr' "$stderr"; then
+            echo "separate flag value leaked into diagnostic" >&2
+            exit 1
+          fi
+
+      - name: Verify explicit structured boolean forms
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          broken="$RUNNER_TEMP/broken-cli-flags.toml"
+          stdout="$RUNNER_TEMP/json.stdout"
+          stderr="$RUNNER_TEMP/json.stderr"
+          set +e
+          FLAGS2ENV_CONFIG="$broken" ./target/debug/oresc \
+            --json=true org --name=litegraph --preix=ltgr list-missing-repos \
+            >"$stdout" 2>"$stderr"
+          status=$?
+          set -e
+          test "$status" -ne 0
+          test ! -s "$stderr"
+          jq -e '.schema == "ores-cli/error/v1" and .ok == false and .error.kind == "unknown-option" and .error.offending == ["--preix"] and .error.expected == ["--prefix"]' "$stdout" >/dev/null
+          if grep -q $'\033' "$stdout"; then
+            echo "structured JSON diagnostic contains ANSI" >&2
+            exit 1
+          fi
+
+      - name: Verify interactive colors default on and explicit false disables them
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          broken="$RUNNER_TEMP/broken-cli-flags.toml"
+          colored="$RUNNER_TEMP/colored.typescript"
+          plain="$RUNNER_TEMP/plain.typescript"
+          no_color="$RUNNER_TEMP/no-color.typescript"
+
+          set +e
+          script -q -e -c "FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc org --name=litegraph --preix=ltgr list-missing-repos" "$colored"
+          colored_status=$?
+          script -q -e -c "FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc --colors=false org --name=litegraph --preix=ltgr list-missing-repos" "$plain"
+          plain_status=$?
+          script -q -e -c "NO_COLOR=1 FLAGS2ENV_CONFIG='$broken' ./target/debug/oresc org --name=litegraph --preix=ltgr list-missing-repos" "$no_color"
+          no_color_status=$?
+          set -e
+
+          test "$colored_status" -ne 0
+          test "$plain_status" -ne 0
+          test "$no_color_status" -ne 0
+          grep -Fq $'\033[1;31mores-cli runtime error:\033[0m' "$colored"
+          if grep -Fq $'\033[' "$plain"; then
+            echo "--colors=false did not suppress ANSI" >&2
+            exit 1
+          fi
+          if grep -Fq $'\033[' "$no_color"; then
+            echo "NO_COLOR did not suppress ANSI" >&2
+            exit 1
+          fi
+
+      - name: Reject credential-shaped output and conflict markers
+        working-directory: ores-cli
+        run: |
+          set -euo pipefail
+          if grep -RInE '^(<{7}|={7}|>{7})( |$)' src/bin/invocation_diagnostic.rs; then
+            echo "unresolved conflict marker found" >&2
+            exit 1
+          fi
+          if grep -RInE '(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----)' src/bin/invocation_diagnostic.rs; then
+            echo "credential-shaped value found" >&2
+            exit 1
+          fi
