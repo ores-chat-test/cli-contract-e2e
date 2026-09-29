@@ -75,8 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$FLAGS2ENV_SHA"
+          test -s Cargo.lock
           changes="$(git status --porcelain)"
           printf '%s\n' "$changes"
-          printf '%s\n' "$changes" | grep -Fx '?? Cargo.lock'
-          printf '%s\n' "$changes" | grep -Fx '?? clients/rust/tests/den390_ores_cli_contract.rs'
-          test "$(printf '%s\n' "$changes" | wc -l)" -eq 2
+          test "$changes" = '?? clients/rust/tests/den390_ores_cli_contract.rs'
