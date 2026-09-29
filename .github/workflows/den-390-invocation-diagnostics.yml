@@ -1,0 +1,81 @@
+name: DEN-390 ores-cli invocation contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/den-390-invocation-diagnostics.yml"
+      - "fixtures/den390_ores_cli_contract.rs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-390-invocation-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flags2env-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      FLAGS2ENV_SHA: 3414281ed8d7339d5bfabf951048bff31aa3349e
+    steps:
+      - name: Check out certificate repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Check out exact public flags-2-env revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: flags-2-env/flags-2-env
+          ref: ${{ env.FLAGS2ENV_SHA }}
+          persist-credentials: false
+          path: flags2env
+
+      - name: Verify parser source identity
+        working-directory: flags2env
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FLAGS2ENV_SHA"
+          test -z "$(git status --porcelain)"
+          test ! -e Cargo.lock
+
+      - name: Install ores-cli declared MSRV
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.88.0
+          rustc --version
+          cargo --version
+
+      - name: Stage non-private DEN-390 contract fixture
+        run: |
+          set -euo pipefail
+          cp fixtures/den390_ores_cli_contract.rs flags2env/clients/rust/tests/den390_ores_cli_contract.rs
+          rustfmt +1.88.0 --check flags2env/clients/rust/tests/den390_ores_cli_contract.rs
+
+      - name: Generate run-local dependency lock
+        working-directory: flags2env
+        run: |
+          set -euo pipefail
+          cargo +1.88.0 generate-lockfile
+          test -s Cargo.lock
+
+      - name: Run exact-revision parser acceptance
+        working-directory: flags2env
+        run: |
+          set -euo pipefail
+          cargo +1.88.0 test --locked -p flags2env --test den390_ores_cli_contract -- --nocapture
+          cargo +1.88.0 clippy --locked -p flags2env --test den390_ores_cli_contract -- -D warnings
+
+      - name: Prove upstream checkout was otherwise untouched
+        working-directory: flags2env
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FLAGS2ENV_SHA"
+          test -s Cargo.lock
+          changes="$(git status --porcelain)"
+          printf '%s\n' "$changes"
+          test "$changes" = '?? clients/rust/tests/den390_ores_cli_contract.rs'

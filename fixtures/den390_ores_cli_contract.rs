@@ -1,0 +1,189 @@
+use std::fs;
+use std::path::PathBuf;
+
+use flags2env::BundledFlags2Env;
+
+const CONTRACT: &str = r#"
+[env]
+files = []
+
+[parse]
+command_env = "TEST_COMMAND"
+positionals_env = "TEST_POSITIONALS"
+unknown_options_env = "TEST_UNKNOWN_OPTIONS"
+errors_env = "TEST_PARSE_ERRORS"
+allow_unknown = false
+
+[flags.json]
+env = "TEST_JSON"
+aliases = ["json"]
+type = "bool"
+default = "true"
+true_aliases = ["t", "1", "yes"]
+false_aliases = ["f", "0", "no"]
+
+[flags.colors]
+env = "TEST_COLORS"
+aliases = ["colors"]
+type = "bool"
+default = "true"
+true_aliases = ["t", "1", "yes"]
+false_aliases = ["f", "0", "no"]
+
+[commands.org]
+env = "TEST_COMMAND_ORG"
+
+[commands.org.flags.name]
+env = "TEST_ORG_NAME"
+aliases = ["name", "org", "owner"]
+short = "n"
+type = "string"
+
+[commands.org.flags.family-prefix]
+env = "TEST_ORG_FAMILY_PREFIX"
+aliases = ["family-prefix", "prefix", "prefix-family"]
+type = "string"
+
+[commands.org.commands.list-missing-repos]
+env = "TEST_COMMAND_ORG_LIST_MISSING_REPOS"
+
+[commands.org.commands.list-missing-repos.flags.report]
+env = "TEST_ORG_LIST_REPORT"
+aliases = ["report"]
+type = "bool"
+default = "false"
+"#;
+
+fn argv(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+fn contract_file() -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "den390-flags2env-{}-{}.toml",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    fs::write(&path, CONTRACT).expect("write fixture contract");
+    path
+}
+
+#[test]
+fn contract_audits_and_prefix_alias_resolves() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+    parser.audit_config(Some(path_str)).expect("fixture audit");
+
+    let args = argv(&[
+        "oresc",
+        "org",
+        "--name=litegraph",
+        "--prefix=ltgr",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&args, Some(path_str))
+        .expect("structured parse");
+    assert!(structured.unknown_options.is_empty());
+    assert!(structured.errors.is_empty());
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_ORG_NAME")
+            .map(String::as_str),
+        Some("litegraph")
+    );
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_ORG_FAMILY_PREFIX")
+            .map(String::as_str),
+        Some("ltgr")
+    );
+    let commands = parser
+        .resolve_commands(&args, Some(path_str))
+        .expect("command resolution");
+    assert_eq!(
+        commands.path,
+        vec!["org".to_owned(), "list-missing-repos".to_owned()]
+    );
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn typo_and_arbitrary_unknown_options_fail_closed() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+
+    for unknown in ["--preix=ltgr", "--definitely-not-real=opaque-value"] {
+        let args = argv(&[
+            "oresc",
+            "org",
+            "--name=litegraph",
+            unknown,
+            "list-missing-repos",
+        ]);
+        let structured = parser
+            .parse_structured(&args, Some(path_str))
+            .expect("structured parse");
+        assert_eq!(structured.unknown_options.len(), 1, "{unknown}");
+        assert!(structured.errors.is_empty(), "{unknown}");
+    }
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn typed_boolean_forms_and_negation_are_canonical() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+
+    let args = argv(&[
+        "oresc",
+        "--json=yes",
+        "--colors=false",
+        "org",
+        "--name=litegraph",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&args, Some(path_str))
+        .expect("typed boolean parse");
+    assert!(structured.unknown_options.is_empty());
+    assert!(structured.errors.is_empty());
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_JSON")
+            .map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_COLORS")
+            .map(String::as_str),
+        Some("false")
+    );
+
+    let negated = argv(&[
+        "oresc",
+        "--no-colors",
+        "org",
+        "--name=litegraph",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&negated, Some(path_str))
+        .expect("negated boolean parse");
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_COLORS")
+            .map(String::as_str),
+        Some("false")
+    );
+    let _ = fs::remove_file(path);
+}
