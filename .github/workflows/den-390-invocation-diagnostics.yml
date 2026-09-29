@@ -19,14 +19,13 @@ jobs:
     timeout-minutes: 25
     env:
       ORES_CLI_SHA: 0785d5f82cca140bfdc5753d6995cdd7d746ddda
+      CROSS_REPO_READ_TOKEN: ${{ secrets.ORES_CLI_READ_TOKEN || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN || secrets['cross-repo-token'] }}
     steps:
       - name: Require approved private-source read credential
-        env:
-          ORES_CLI_READ_TOKEN: ${{ secrets.ORES_CLI_READ_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${ORES_CLI_READ_TOKEN:-}" || {
-            echo "ORES_CLI_READ_TOKEN is required for private-source verification" >&2
+          test -n "${CROSS_REPO_READ_TOKEN:-}" || {
+            echo "a governed cross-repository read credential is required for private-source verification" >&2
             exit 2
           }
 
@@ -35,7 +34,7 @@ jobs:
         with:
           repository: ORESoftware/ores-cli
           ref: ${{ env.ORES_CLI_SHA }}
-          token: ${{ secrets.ORES_CLI_READ_TOKEN }}
+          token: ${{ env.CROSS_REPO_READ_TOKEN }}
           persist-credentials: false
           path: ores-cli
 
