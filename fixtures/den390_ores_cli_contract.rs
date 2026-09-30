@@ -367,3 +367,72 @@ fn terminator_keeps_boolean_looking_operand_out_of_provided_flags() {
     assert!(!structured.provided_flags.contains_key("TEST_JSON"));
     let _ = fs::remove_file(path);
 }
+
+#[test]
+fn malformed_boolean_error_does_not_reflect_supplied_value() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+    let marker = "DO_NOT_REFLECT_7F4C9A";
+    let malformed = format!("--colors={marker}");
+    let args = vec![
+        "oresc".to_owned(),
+        malformed,
+        "org".to_owned(),
+        "--name=litegraph".to_owned(),
+        "list-missing-repos".to_owned(),
+    ];
+    let structured = parser
+        .parse_structured(&args, Some(path_str))
+        .expect("malformed boolean parse");
+    assert!(!structured.errors.is_empty());
+    let rendered = structured.errors.join("\n");
+    assert!(!rendered.contains(marker), "parser error reflected supplied value");
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn duplicate_boolean_occurrences_use_last_explicit_value() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+
+    let enable_last = argv(&[
+        "oresc",
+        "--json=false",
+        "--json",
+        "org",
+        "--name=litegraph",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&enable_last, Some(path_str))
+        .expect("duplicate boolean parse");
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_JSON")
+            .map(String::as_str),
+        Some("true")
+    );
+
+    let disable_last = argv(&[
+        "oresc",
+        "--json",
+        "--json=false",
+        "org",
+        "--name=litegraph",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&disable_last, Some(path_str))
+        .expect("duplicate boolean parse");
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_JSON")
+            .map(String::as_str),
+        Some("false")
+    );
+    let _ = fs::remove_file(path);
+}
