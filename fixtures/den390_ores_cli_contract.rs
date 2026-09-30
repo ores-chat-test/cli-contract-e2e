@@ -302,13 +302,7 @@ fn option_shaped_string_value_is_consumed_as_value() {
     let path = contract_file();
     let path_str = path.to_str().expect("UTF-8 path");
     let parser = BundledFlags2Env::new();
-    let args = argv(&[
-        "oresc",
-        "org",
-        "--name",
-        "--json",
-        "list-missing-repos",
-    ]);
+    let args = argv(&["oresc", "org", "--name", "--json", "list-missing-repos"]);
     let structured = parser
         .parse_structured(&args, Some(path_str))
         .expect("option-shaped string value parse");
