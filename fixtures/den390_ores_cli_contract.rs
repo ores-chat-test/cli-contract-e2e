@@ -296,3 +296,59 @@ fn malformed_boolean_fails_closed_without_becoming_an_unknown_option() {
     assert!(!structured.errors.is_empty());
     let _ = fs::remove_file(path);
 }
+
+#[test]
+fn option_shaped_string_value_is_consumed_as_value() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+    let args = argv(&[
+        "oresc",
+        "org",
+        "--name",
+        "--json",
+        "list-missing-repos",
+    ]);
+    let structured = parser
+        .parse_structured(&args, Some(path_str))
+        .expect("option-shaped string value parse");
+    assert!(structured.unknown_options.is_empty());
+    assert!(structured.errors.is_empty());
+    assert_eq!(
+        structured
+            .provided_flags
+            .get("TEST_ORG_NAME")
+            .map(String::as_str),
+        Some("--json")
+    );
+    assert!(!structured.provided_flags.contains_key("TEST_JSON"));
+    let commands = parser
+        .resolve_commands(&args, Some(path_str))
+        .expect("command resolution");
+    assert_eq!(
+        commands.path,
+        vec!["org".to_owned(), "list-missing-repos".to_owned()]
+    );
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn terminator_keeps_boolean_looking_operand_out_of_provided_flags() {
+    let path = contract_file();
+    let path_str = path.to_str().expect("UTF-8 path");
+    let parser = BundledFlags2Env::new();
+    let args = argv(&[
+        "oresc",
+        "org",
+        "--name=litegraph",
+        "list-missing-repos",
+        "--",
+        "--json",
+    ]);
+    let structured = parser
+        .parse_structured(&args, Some(path_str))
+        .expect("terminator boolean-looking operand parse");
+    assert!(structured.unknown_options.is_empty());
+    assert!(!structured.provided_flags.contains_key("TEST_JSON"));
+    let _ = fs::remove_file(path);
+}
