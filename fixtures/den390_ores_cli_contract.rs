@@ -387,7 +387,10 @@ fn malformed_boolean_error_does_not_reflect_supplied_value() {
         .expect("malformed boolean parse");
     assert!(!structured.errors.is_empty());
     let rendered = structured.errors.join("\n");
-    assert!(!rendered.contains(marker), "parser error reflected supplied value");
+    assert!(
+        !rendered.contains(marker),
+        "parser error reflected supplied value"
+    );
     let _ = fs::remove_file(path);
 }
 
