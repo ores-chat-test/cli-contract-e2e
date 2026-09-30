@@ -232,7 +232,7 @@ fn separate_values_and_short_alias_preserve_command_resolution() {
 }
 
 #[test]
-fn unknown_separate_value_does_not_hide_following_command() {
+fn unknown_separate_value_fails_closed_before_nested_command_resolution() {
     let path = contract_file();
     let path_str = path.to_str().expect("UTF-8 path");
     let parser = BundledFlags2Env::new();
@@ -253,10 +253,7 @@ fn unknown_separate_value_does_not_hide_following_command() {
     let commands = parser
         .resolve_commands(&args, Some(path_str))
         .expect("command resolution");
-    assert_eq!(
-        commands.path,
-        vec!["org".to_owned(), "list-missing-repos".to_owned()]
-    );
+    assert_eq!(commands.path, vec!["org".to_owned()]);
     let _ = fs::remove_file(path);
 }
 
