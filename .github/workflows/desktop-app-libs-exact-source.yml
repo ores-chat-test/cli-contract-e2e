@@ -1,0 +1,112 @@
+name: desktop app libs exact-source certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-app-libs-exact-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPOSITORY: ORESoftware/ores-desktop-app-libs
+  SOURCE_SHA: 8c42ffb5133337f6e9f9105006e761826fe1b517
+  TJSV_SHA: d776d54d7138bb199ed86d550e22b1570536f4df
+  ZED_CLI_SHA: a80dad717dbff82ef6fff237e13ccf3820f074c4
+
+jobs:
+  contract-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact public consumer source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - name: Verify exact source identity
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Exercise manifest-backed peer authority admission
+        uses: ORESoftware/typespec-json-schema-validator@d776d54d7138bb199ed86d550e22b1570536f4df
+        with:
+          contract: desktop-provider-requirements
+      - name: Require passed retained report
+        run: |
+          set -euo pipefail
+          jq -e '
+            .schema == "ores.typespec-json-schema-validator.report/v1" and
+            .status == "passed" and
+            .zeroUnexplainedFindings == true and
+            .authorities.precedence == "none"
+          ' .typespec-json-schema-validator/desktop-provider-report.json
+
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact public consumer source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - name: Verify exact source identity
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install reviewed Rust toolchain action
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo test --workspace --no-default-features
+      - run: cargo test --workspace --all-features
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  zed-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact public consumer source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ env.SOURCE_REPOSITORY }}
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - name: Verify exact source identity
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Check out immutable Zed CLI authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: tmp/zed-cli
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: stable
+      - name: Build exact Zed CLI
+        working-directory: tmp/zed-cli
+        run: cargo build --release --locked --bin zed
+      - name: Validate package contract
+        run: ./tmp/zed-cli/target/release/zed validate --manifest .zpkg.toml
+      - name: Inspect package offline
+        run: |
+          ./tmp/zed-cli/target/release/zed inspect --root "$GITHUB_WORKSPACE" --format json > "$RUNNER_TEMP/zed-inspect.json"
+          test -s "$RUNNER_TEMP/zed-inspect.json"
+      - name: Pack package through Zed
+        run: ./tmp/zed-cli/target/release/zed pack
